@@ -231,9 +231,9 @@ struct ProducerConsumer : hw::ThreadBase<ProducerConsumer, ProducerConsumerTrait
 
 static std::string tag("987654321-00797098707908790");
 [[maybe_unused]] static void __attribute__((noinline)) test()  {
-//  {
-//    test_Alloc({1,2,3,4,5});
-//  }
+  {
+    test_Alloc({1,2,3,4,5});
+  }
   //    [[maybe_unused]]
   // test basic struct copy
   Bid bid;

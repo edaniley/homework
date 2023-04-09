@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pthread.h>
 #include <cassert>
 #include <iostream>
 #include <sstream>
@@ -32,6 +33,8 @@ inline void Abort(const char *errmsg, const char *errloc) {
   std::cerr << errloc << " [" << errmsg << "]" << std::endl;
 }
 
+#define HW_ABORT(MSG) Abort(MSG, __FILE_ ":" __LINE__);
+
 #ifdef unix
 inline std::string DemangleTypeName(const char *typeName) {
   int status;
@@ -51,6 +54,21 @@ std::string TypeName() {
   return DemangleTypeName(typeid(T).name());
 }
 
-#define HW_ABORT(MSG) Abort(MSG, __FILE_ ":" __LINE__);
+//////////////////////// manage thread CPU affinity ///////////////////////////
+#ifdef unix
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <pthread.h>
+
+int SetThreadAffinity(int core) {
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(core, &cpuset);
+  return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+}
+
+#else
+#endif
 
 }

@@ -91,9 +91,11 @@ public:
     return std::shared_ptr<T>(t, Deleter(mem));
   }
 
+  void thread_init() { thrd_free(thrd_alloc()); }
+
 private:
   static Mem* thrd_alloc() {
-    if (!thrd_free_cnt) {
+    if (!thrd_free_cnt) [[unlikely]] {
       thrd_free_cnt = N;
       thrd_free_mem = heap_.Alloc();
     }
@@ -103,7 +105,7 @@ private:
     return retval;
   }
   static void thrd_free(Mem* mem) {
-    if (thrd_free_cnt == N) {
+    if (thrd_free_cnt == N) [[unlikely]] {
       heap_.Free(thrd_free_mem);
       thrd_free_mem = nullptr;
       thrd_free_cnt = 0;
@@ -136,6 +138,10 @@ using TQueue = hw::ProducerConsumerQueue<TData>;
 using TAllocator = hw::MemAllocator<TData>;
 
 static void Producer (int core, TAllocator & allocator, TQueue &queue, size_t msgcnt) {
+  if (core != -1) {
+    int err = hw::SetThreadAffinity(core);
+    std::cout << "Producer core:" << core<< " affinity_set:" << (err ? "failed" : "success") << std::endl;
+  }
   for (size_t msgno = 1; msgno <= msgcnt; ++msgno) {
     queue.Enqueue(std::move(allocator.make_unique(msgno)));
   }
@@ -143,6 +149,10 @@ static void Producer (int core, TAllocator & allocator, TQueue &queue, size_t ms
 }
 
 static void Consumer (int core, TAllocator & allocator, TQueue &queue) {
+  if (core != -1) {
+    int err = hw::SetThreadAffinity(core);
+    std::cout << "Consumer core:" << core<< " affinity_set:" << (err ? "failed" : "success") << std::endl;
+  }
   int no = 0;
   size_t msgcnt = 0;
   while (no != -1) {
@@ -162,6 +172,7 @@ void test_Alloc(std::vector<int> cores = std::vector<int>{}) {
   // use int as core
   TQueue queue;
   TAllocator allocator;
+  allocator.thread_init();
 
   if (cores.empty()) {
     cores = std::vector<int>{-1, -1};
