@@ -106,9 +106,12 @@ namespace hw {
       while (!m_seqno.compare_exchange_weak(
           seqno, seqno+1, std::memory_order_release, std::memory_order_relaxed));
       ++seqno;
-      TMsg &msg =  m_msg[seqno % SIZE];//replace with bitwise and
+      TMsg &msg =  m_msg[seqno % SIZE];//replace with bitwise
       msg.m_info.m_timestamp = 0;
-      msg.m_info.m_seqno.store(seqno, std::memory_order_release);
+      msg.m_info.m_seqno.store(seqno, std::memory_order_release);// maybe use seqno as commit no  instead of m_timestamp?
+      // use n_allocno as current m_seqno
+      // copy n_allocno to commit message content
+      // n_allocno == m_seqno indicates that message is ready for consumption
       return &msg;
     }
 
@@ -117,6 +120,7 @@ namespace hw {
       const auto ts = std::chrono::system_clock::now();
       msg.m_info.m_msgtypes = (T)0;
       msg.m_info.m_timestamp = *(uint64_t*)&ts;
+      // copy newly allocated seqno to commited seqno
     }
 
     TMsg* GetMsg(size_t expectedSecno) {
@@ -124,6 +128,9 @@ namespace hw {
       auto seqno = msg.m_info.m_seqno.load(std::memory_order_acquire);
       if (seqno < expectedSecno)
         return nullptr;
+        // simplify : use seqno (maybe we need 2: one to assign , another to commit )
+        // commited one is examined by GetMsg
+        // if less then return nullptr, if as expected then return   more - excepption
       else if (seqno == expectedSecno) {
         // spin here
         return msg.m_info.m_timestamp ? &msg : nullptr;

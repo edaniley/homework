@@ -9,6 +9,7 @@
 #include <array>
 #include <cstring>
 
+#include "Demangle.h"
 #include "MP.h"
 #include "Struct-pp.h"
 
@@ -34,8 +35,9 @@ namespace hw {
     F &       operator()()       {return m_val;}
     const F & operator()() const {return m_val;}
     static std::string Name() {
-      const char *data = NAME.data();
-      return std::string(data, strlen(data));
+      // const char *data = NAME.data();
+      // return std::string(data, strlen(data));
+      return std::string(NAME);
     }
     static std::string TypeToString() {
       std::ostringstream os;

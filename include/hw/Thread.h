@@ -53,6 +53,9 @@ struct ThreadBase {
 
   template<typename ComponentT>
   void AssingCallbacks(ComponentT & component) {
+    // component.m_handlers  is std::vector<std::pair<size_t, TCallbackOptions>>
+    // size_t is Ether message ID
+    // TCallbackOptions - std::variant of all component OnMsgCaller objects
     for (auto &var: component.m_handlers) {
       const auto id = var.first;
       std::visit([this, id] (auto &cb) {
@@ -64,6 +67,7 @@ struct ThreadBase {
   ThreadBase(TEther &ether)
     : m_thread(static_cast<TThread &>(*this)), m_ether(ether), m_etherator(ether) {
     mp::tuple_for_each<TComponents>(m_components, [this] (auto &ptr) {
+      // iterate tuple of unique pointer to components ; create component objects
       using T =  std::decay_t<decltype(ptr)>::element_type;
       ptr.reset(new T());
       AssingCallbacks(*ptr.get());

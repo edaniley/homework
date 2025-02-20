@@ -35,25 +35,6 @@ inline void Abort(const char *errmsg, const char *errloc) {
 
 #define HW_ABORT(MSG) Abort(MSG, __FILE_ ":" __LINE__);
 
-#ifdef unix
-inline std::string DemangleTypeName(const char *typeName) {
-  int status;
-  std::unique_ptr<char, void(*)(void*)> ptr(
-    abi::__cxa_demangle(typeName, 0, 0, &status),
-    std::free);
-  if (!status)
-    return std::string(ptr.get());
-  return std::string("");
-}
-#else
-#define DemangleTypeName(x) x
-#endif
-
-template <typename T>
-std::string TypeName() {
-  return DemangleTypeName(typeid(T).name());
-}
-
 //////////////////////// manage thread CPU affinity ///////////////////////////
 #ifdef unix
 #ifndef _GNU_SOURCE
@@ -61,7 +42,7 @@ std::string TypeName() {
 #endif
 #include <pthread.h>
 
-int SetThreadAffinity(int core) {
+inline int SetThreadAffinity(int core) {
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
   CPU_SET(core, &cpuset);

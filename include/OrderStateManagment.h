@@ -5,6 +5,7 @@
 
 #include <hw/Util.h>
 #include <hw/FSM.h>
+#include <hw/Demangle.h>
 
 namespace OrderStateManagment {
 
@@ -26,42 +27,42 @@ struct ModifyOrder {
 };
 
 template<typename T> // this is not necessary for Dispatch; to facilitate debugging
-struct OrderStateBase {
-  OrderStateBase() { std::cout << "+ " << hw::TypeName<T>() << "()" << std::endl; }
-  OrderStateBase(const OrderStateBase<T> &) { std::cout << "+ " << hw::TypeName<T>() << "(const &)" << std::endl; }
-  OrderStateBase(OrderStateBase<T> &&) { std::cout << "+ " << hw::TypeName<T>() << "(&&)" << std::endl; }
-  ~OrderStateBase() {std::cout << "- " << hw::TypeName<T>() << std::endl; }
-  //OrderStateBase& operator=(OrderStateBase&& data) = default;
-  OrderStateBase& operator=(OrderStateBase&& data) {
+struct OrderStateDebug {
+  OrderStateDebug() { std::cout << "+ " << hw::TypeName<T>() << "()" << std::endl; }
+  OrderStateDebug(const OrderStateDebug<T> &) { std::cout << "+ " << hw::TypeName<T>() << "(const &)" << std::endl; }
+  OrderStateDebug(OrderStateDebug<T> &&) { std::cout << "+ " << hw::TypeName<T>() << "(&&)" << std::endl; }
+  ~OrderStateDebug() {std::cout << "- " << hw::TypeName<T>() << std::endl; }
+  //OrderStateDebug& operator=(OrderStateDebug&& data) = default;
+  OrderStateDebug& operator=(OrderStateDebug&& data) {
     std::cout << "= " << hw::TypeName<T>() << "(&&)" << std::endl;
     return *this;
   }
 };
 
-struct OrderStateNew : OrderStateBase<OrderStateNew> {
+struct OrderStateNew : OrderStateDebug<OrderStateNew> {
   OrderStateNew() { std::cout << "New order\n"; }
 };
 
-struct OrderStateLive : OrderStateBase <OrderStateLive> {
+struct OrderStateLive : OrderStateDebug <OrderStateLive> {
   OrderStateLive() { std::cout << "Order live" << '\n'; }
 };
-struct OrderStateRejected : OrderStateBase <OrderStateRejected> {
+struct OrderStateRejected : OrderStateDebug <OrderStateRejected> {
   OrderStateRejected() { std::cout << "Order rejected" << '\n'; }
 };
 
-struct OrderStateFilled: OrderStateBase <OrderStateFilled> {
+struct OrderStateFilled: OrderStateDebug <OrderStateFilled> {
   OrderStateFilled() { std::cout << "Order filled" << '\n'; }
 };
 
-struct OrderStateCanceled : OrderStateBase<OrderStateCanceled>{
+struct OrderStateCanceled : OrderStateDebug<OrderStateCanceled>{
   OrderStateCanceled() { std::cout << "Order cancelled\n"; }
 };
 
-struct OrderStateOverFilled : OrderStateBase <OrderStateOverFilled> {
+struct OrderStateOverFilled : OrderStateDebug <OrderStateOverFilled> {
   OrderStateOverFilled() { std::cout << "Order over filled\n"; }
 };
 
-using state = std::variant<OrderStateNew,// must be first alternative ??
+using OrderStates = std::variant<OrderStateNew,// must be first alternative ??
   OrderStateLive, OrderStateRejected,OrderStateFilled, OrderStateOverFilled, OrderStateCanceled>;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -72,11 +73,11 @@ struct OrderData {
 };
 
 ///////////////////////////////////////////////////////////////////////////////
-class OrderState : public hw::FiniteStateMachine<OrderState, state> {
-  using TParent = hw::FiniteStateMachine<OrderState, state>;
+class Order : public hw::FiniteStateMachine<Order, OrderStates> {
+  using TParent = hw::FiniteStateMachine<Order, OrderStates>;
   OrderData m_ord;
 public:
-  explicit OrderState(int quantity) : TParent(OrderStateNew{}) {
+  explicit Order(int quantity) : TParent(OrderStateNew{}) {
     m_ord.ord_qty = quantity;
     m_ord.done_qty = 0;
     m_ord.cxl_qty = 0;
@@ -102,18 +103,19 @@ public:
       } else {
         std::cout << "Order canceled" << std::endl;
       }
-      return m_ord.ord_qty > m_ord.done_qty ? std::nullopt : std::optional<state>(OrderStateCanceled{});
+      return m_ord.ord_qty > m_ord.done_qty ? std::nullopt : std::optional<OrderStates>(OrderStateCanceled{});
     } else {
       std::cout << "Invalid canceled request" << std::endl;
     }
-    return std::optional<state>{};
+    return std::optional<OrderStates>{};
   }
   auto OnEvent(OrderStateLive&, const FillOrder& e) {
     m_ord.done_qty += e.quantity;
     std::cout << (m_ord.done_qty < m_ord.ord_qty ? "Filled " : "Overfilled ") << e.quantity
          << " leaves: " << (m_ord.ord_qty - m_ord.done_qty) << std::endl;
     return m_ord.done_qty < m_ord.ord_qty ? std::nullopt :
-           m_ord.done_qty == m_ord.ord_qty ? std::optional<state>(OrderStateFilled{}) : std::optional<state>(OrderStateOverFilled{});
+           m_ord.done_qty == m_ord.ord_qty ? std::optional<OrderStates>(OrderStateFilled{}) :
+              std::optional<OrderStates>(OrderStateOverFilled{});
   }
   auto OnEvent(OrderStateFilled&, const FillOrder& e) {
     m_ord.done_qty += e.quantity;
@@ -136,35 +138,35 @@ public:
 using namespace OrderStateManagment;
 
 static void test_Fill() {
-  OrderState order_state(10000);
-  order_state.Dispatch(AckOrder{});
-  order_state.Dispatch(FillOrder{ 2000 });
-  order_state.Dispatch(FillOrder{ 4000 });
-  order_state.Dispatch(FillOrder{ 4000 });
+  Order order(10000);
+  order.Dispatch(AckOrder{});
+  order.Dispatch(FillOrder{ 2000 });
+  order.Dispatch(FillOrder{ 4000 });
+  order.Dispatch(FillOrder{ 4000 });
 }
 
 static void test_PartialFill() {
-  OrderState order_state(10000);
-  order_state.Dispatch(AckOrder{});
-  order_state.Dispatch(FillOrder{ 2000 });
-  order_state.Dispatch(FillOrder{ 4000 });
-  order_state.Dispatch(CancelOrder{ -1 });
+  Order order(10000);
+  order.Dispatch(AckOrder{});
+  order.Dispatch(FillOrder{ 2000 });
+  order.Dispatch(FillOrder{ 4000 });
+  order.Dispatch(CancelOrder{ -1 });
 }
 
 static void test_Overfill() {
-  OrderState order_state(10000);
-  order_state.Dispatch(AckOrder{});
-  order_state.Dispatch(FillOrder{ 2000 });
-  order_state.Dispatch(FillOrder{ 4000 });
-  order_state.Dispatch(CancelOrder{ 1000 });
-  order_state.Dispatch(FillOrder{ 4000 });
-  order_state.Dispatch(CancelOrder{ -1 });
+  Order order(10000);
+  order.Dispatch(AckOrder{});
+  order.Dispatch(FillOrder{ 2000 });
+  order.Dispatch(FillOrder{ 4000 });
+  order.Dispatch(CancelOrder{ 1000 });
+  order.Dispatch(FillOrder{ 4000 });
+  order.Dispatch(CancelOrder{ -1 });
 }
 
 static void test_Invalid() {
-  OrderState order_state(10000);
-  order_state.Dispatch(FillOrder{ 2000 });
-  order_state.Dispatch(RejectOrder{ });
+  Order order(10000);
+  order.Dispatch(FillOrder{ 2000 });
+  order.Dispatch(RejectOrder{ });
 }
 
 inline

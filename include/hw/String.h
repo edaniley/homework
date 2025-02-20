@@ -1,77 +1,70 @@
 #pragma once
 
-#include <iostream>
+#include <ostream>
+#include <algorithm>
 
-namespace hw {
-template <size_t N> class String;
-}
-
-namespace std {
-template <size_t N> std::ostream& operator<<( std::ostream&, const hw::String<N>& );
-}
+#include "StringUtil.h"
 
 namespace hw {
 
 template < size_t N>
 class alignas(8) String {
-  static constexpr size_t capacity = N;
-  static_assert(capacity > 1);
+  static_assert(N > 1);
 
 public:
-  String() {
-    memset(m_data, 0, sizeof(m_data));
-  }
+  constexpr String(const char* str) { assign(str); }
+  constexpr String(const std::string &str) { assign(str.c_str()); }
+  constexpr String() = default;
 
-  String (const String &other) {
-    memcpy(m_data, &other, sizeof(m_data));
-  }
+  constexpr operator char*() { return m_data; }
+  constexpr operator const char*() const { return m_data; }
+  constexpr const char* c_str() const { return m_data; }
+  constexpr bool empty() const { return m_data[0] != 0; }
+  constexpr size_t capacity() const { return N; }
+  size_t length() { return strlen(m_data); }
 
-  String(const char *str) {
-    copy(str);
-  }
-
-  String(const std::string &str) {
-    copy(str.c_str());
-  }
-
-  String & operator = (const String &other) {
-    memcpy(m_data, &other, sizeof(m_data));
-    return *this;
-  }
 
   String & operator = (const char *str) {
-    copy(str);
+    assign(str);
     return *this;
   }
-
   String & operator = (const std::string &str) {
-    copy(str.c_str());
+    assign(str.c_str());
     return *this;
-  }
-
-  operator const char *() const {
-    return m_data;
   }
 
   ~String () = default;
 
-private:
-  char m_data[capacity];
-  void copy(const char *str) {
-    const size_t len = std::min(::strlen(str), sizeof(m_data)-1);
-    memcpy(m_data, str, len);
-    m_data[len] = 0;
-  }
-
-  friend std::ostream& std:: operator<< <N>( std::ostream&, const String<N>& );
-};
-
-}
-
-namespace std {
-template <size_t N>
-std::ostream & operator<< (std::ostream &os, const hw::String<N>& str) {
-  os << std::string((const char *)str);
+friend std::ostream& operator<<( std::ostream& os, const String & str) {
+  os <<  str.m_data;
   return os;
 }
+
+constexpr void assign(const char* str) {
+      const size_t len = std::min(stringLen(str), N);
+#if defined __clang__ || (defined __GNUC__ && __GNUC__ > 11)
+      std::copy_n(str, len, m_data);
+#else
+      char* dst = m_data;
+      for (size_t cnt = len; cnt; ++dst, ++str, --cnt)
+          *dst = *str;
+#endif
+      m_data[len] = 0;
+  }
+
+private:
+  char m_data[N+1] = {0};
+};
+
+static_assert(String<4>("123456").capacity()== 4);
+static_assert(stringLen(String<4>("123456").c_str())== 4);
+static_assert(stringsEqual(String<4>("123456"), "1234"));
+static_assert(String<8>("123456").capacity()== 8);
+static_assert(stringLen(String<8>("123456").c_str())== 6);
+static_assert(stringsEqual(String<8>("123456"), "123456"));
+static_assert(String<4>().capacity()== 4);
+static_assert(stringLen(String<4>().c_str())== 0);
+static_assert(stringsEqual(String<4>(), ""));
+
 }
+

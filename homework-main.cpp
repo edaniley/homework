@@ -13,14 +13,17 @@
 #endif
 
 #include <TimeUtil.h>
-//#include <hw/CBuffer.h>
-//#include <OrderStateManagment.h>
+// #include <hw/CBuffer.h>
+// #include <OrderStateManagment.h>
 #include <hw/String.h>
 #include <hw/Struct.h>
 #include <hw/Component.h>
 #include <hw/Thread.h>
 #include <hw/Alloc.h>
 #include <queue>
+
+#include <hw/Demangle.h>
+#include <hw/String.h>
 
 using namespace std;
 
@@ -263,12 +266,22 @@ static std::string tag("987654321-00797098707908790");
   s = tag;
   cout << "S:" << s << endl;
   s = t;
+
+  std::variant<int, double ,  int > x2;
+  std::cout << "x2:" << typeid(x2).name() << std::endl;
   exit(0);
+}
+
+[[maybe_unused]]
+static void test_string () {
+  hw::String<6> str("1234567");
+  std::cout << "str [" << str << "]" << std::endl;
+
 }
 
 
 int main(int argc, char **argv) {
-  test();
+  // test();
   [[maybe_unused]] TQuoter quoter;
   [[maybe_unused]] EtherTraits et;
   [[maybe_unused]] TEther ether;
@@ -276,7 +289,13 @@ int main(int argc, char **argv) {
   std::cout << "AllocSize:" << TEther::TMsg::AllocSize() << std::endl;
   std::cout << "test id: " << ether.NameToID("MD/QUOTE") << std::endl;
 
+
   [[maybe_unused]] TEther::TMsg msg;
+  std::cout << "MaxDataSize: " << TEther::TMsg::MaxDataSize() << std::endl;
+
+  std::cout << "demangled [" << hw::TypeName<TEther::TMsg>() << "]" << std::endl;
+  std::cout << "demangled [" << hw::TypeName<TEther::TMsg *>() << "]" << std::endl;
+
   [[maybe_unused]] ProducerConsumer prodcons(ether);
   [[maybe_unused]] Producer producer(ether);
   [[maybe_unused]] Consumer consumer(ether);
