@@ -5,6 +5,8 @@
 #include <hw/type/NamedType.hpp>
 #include <hw/type/TypeInfo.hpp>
 #include <hw/type/TypeList.hpp>
+#include <hw/type/beacon/Beacon.hpp>
+#include <hw/utility/Text.hpp>
 
 void test_types() {
   using namespace hw::type;
@@ -13,8 +15,15 @@ void test_types() {
   std::cout << TypeListToString<L>() << std::endl;
 }
 
+void test_text() {
+  using namespace hw::utility;
+  char buff[1024];
+  strcpy(buff, "7098709870987098709870979087 using namespace hw::utility;");
+  std::cout << toHex(buff, 256) << std::endl;
+}
+
 int main() {
-  test_types();
+  test_text();
 
   return 0;
 }
