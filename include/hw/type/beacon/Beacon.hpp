@@ -19,7 +19,7 @@ using LLong = boost::multiprecision::int128_t;
 #endif
 using Price = Long;
 using Double = double;
-using Time = std::chrono:: system_clock:: time_point;
+using Time = std::chrono::system_clock::time_point;
 struct OpaqueTiny {};
 struct OpaqueSmall {};
 

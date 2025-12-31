@@ -7,6 +7,8 @@
 #include <hw/type/TypeList.hpp>
 #include <hw/type/beacon/Beacon.hpp>
 #include <hw/utility/Text.hpp>
+#include <hw/utility/Format.hpp>
+#include <hw/type/beacon/TypeTraits.hpp>
 
 void test_types() {
   using namespace hw::type;
@@ -19,7 +21,7 @@ void test_text() {
   using namespace hw::utility;
   char buff[1024];
   strcpy(buff, "7098709870987098709870979087 using namespace hw::utility;");
-  std::cout << toHex(buff, 256) << std::endl;
+  std::cout << frmt::format("{}", toHex(buff, 256)) << std::endl;
 }
 
 int main() {
