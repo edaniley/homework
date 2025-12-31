@@ -9,6 +9,7 @@
 #include <hw/utility/Text.hpp>
 #include <hw/utility/Format.hpp>
 #include <hw/type/beacon/TypeTraits.hpp>
+#include <hw/type/beacon/Numeric.hpp>
 
 void test_types() {
   using namespace hw::type;
