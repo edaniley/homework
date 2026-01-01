@@ -10,6 +10,8 @@
 #include <concepts>
 #include <stdexcept>
 #include <bit>
+#include <string_view>
+#include <cstring>
 
 #include <boost/multiprecision/cpp_int.hpp>
 #include <hw/type/NameTag.hpp>
@@ -21,11 +23,8 @@
 namespace hw::type::beacon {
 
 // --- Concepts ---
-
 template <typename T>
-concept TimeDurationType = requires {
-  typename T::duration;
-};
+concept TimeDurationType = requires { typename T::duration; };
 
 template <typename T>
 concept LongNumericType = std::is_same_v<T, __int128_t> || std::is_same_v<T, __uint128_t>;
@@ -40,7 +39,6 @@ concept NumericType = (
 );
 
 // --- Helpers ---
-
 template <LongNumericType T>
 std::ostream& operator << (std::ostream& os, const T& number) {
   os << boost::multiprecision::int128_t(number);
@@ -48,7 +46,6 @@ std::ostream& operator << (std::ostream& os, const T& number) {
 }
 
 // --- NamedNumericType ---
-
 template <NameTag Tag, NumericType ValueType>
 struct NamedNumericType {
   using type_trait = trait::Numeric;
@@ -56,40 +53,48 @@ struct NamedNumericType {
   static constexpr size_t SIZE = sizeof(ValueType);
   static constexpr NameTag name_tag = Tag;
 
-  static constexpr size_t size(const std::byte*) {
-    return SIZE;
-  }
+  static constexpr size_t size(const std::byte*) { return SIZE; }
 
-  // Safe Write (Handles Alignment UB)
+  /**
+   * Safe Write: Since Host (x86) and Protocol (Beacon) are both Little-Endian,
+   * we simply memcpy. This protects against unaligned memory access UB.
+   */
   template <typename Type>
   requires std::is_assignable_v<ValueType&, Type>
   static void set(std::byte* ptr, Type&& value) {
     ValueType v = static_cast<ValueType>(std::forward<Type>(value));
-    // Note: If Beacon is Big-Endian, perform swap here: v = std::byteswap(v);
     std::memcpy(ptr, &v, SIZE);
   }
 
-  // String-based Write
+  /**
+   * String-based Write: For JSON/Tests. Handles "A", "0x41", or "65".
+   */
   static void set(std::byte* ptr, std::string_view val) {
     set(ptr, hw::utility::fromString<ValueType>(std::string(val)));
   }
 
-  // Safe Read (Handles Alignment UB)
+  /**
+   * Safe Read: Direct memcpy from wire to host-native ValueType.
+   */
   static ValueType get(const std::byte* ptr) {
     ValueType v;
     std::memcpy(&v, ptr, SIZE);
-    // Note: If Beacon is Big-Endian, perform swap here: v = std::byteswap(v);
     return v;
   }
 
+  /**
+   * Isomorphic toString: Optimized for JSON test cases.
+   */
   static std::string toString(const std::byte* ptr) {
     ValueType val = get(ptr);
 
-    if constexpr (std::is_same_v<ValueType, int8_t> || std::is_same_v<ValueType, uint8_t>) {
-      // Improved character vs numeric formatting
+    if constexpr (std::is_same_v<ValueType, char>) {
       if (std::isalnum(static_cast<unsigned char>(val))) {
-        return frmt::format("'{}'", static_cast<char>(val));
+        return frmt::format("{}", static_cast<char>(val));
       }
+      return frmt::format("0x{:02x}", static_cast<uint8_t>(val));
+    }
+    else if constexpr (sizeof(ValueType) == 1 && std::is_integral_v<ValueType>) {
       return frmt::format("0x{:02x}", static_cast<uint8_t>(val));
     }
     else if constexpr (LongNumericType<ValueType>) {
@@ -97,13 +102,13 @@ struct NamedNumericType {
       oss << val;
       return oss.str();
     }
+    else if constexpr (std::is_enum_v<ValueType>) {
+      return frmt::format("{}", static_cast<std::underlying_type_t<ValueType>>(val));
+    }
     else {
-      // Use the framework's format utility
       return frmt::format("{}", val);
     }
   }
 };
 
 } // namespace hw::type::beacon
-// --- END FILE: include/hw/type/beacon/Numeric.hpp ---
-
