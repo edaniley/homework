@@ -49,11 +49,16 @@ struct TypeInfo {
   static constexpr size_t name_hash = fnvla_hash(name());
 };
 
+
 template <typename Type>
 constexpr std::string_view TypeName() {
-  if constexpr (requires { Type::name_tag(); }) {
+  if constexpr (requires { { Type::name_tag } -> std::convertible_to<std::string_view>; }) {
+    return static_cast<std::string_view>(Type::name_tag);
+  }
+  else if constexpr (requires { { Type::name_tag() } -> std::convertible_to<std::string_view>; }) {
     return Type::name_tag();
-  } else {
+  }
+  else {
     return TypeInfo<Type>::name();
   }
 }

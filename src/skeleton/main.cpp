@@ -10,6 +10,7 @@
 #include <hw/utility/Format.hpp>
 #include <hw/type/beacon/TypeTraits.hpp>
 #include <hw/type/beacon/Numeric.hpp>
+#include <hw/type/beacon/Enum.hpp>
 
 void test_types() {
   using namespace hw::type;
