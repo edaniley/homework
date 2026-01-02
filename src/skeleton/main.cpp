@@ -11,6 +11,8 @@
 #include <hw/type/beacon/TypeTraits.hpp>
 #include <hw/type/beacon/Numeric.hpp>
 #include <hw/type/beacon/Enum.hpp>
+#include <hw/type/beacon/String.hpp>
+#include <hw/type/beacon/Opaque.hpp>
 
 void test_types() {
   using namespace hw::type;
