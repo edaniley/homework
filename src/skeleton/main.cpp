@@ -13,6 +13,8 @@
 #include <hw/type/beacon/Enum.hpp>
 #include <hw/type/beacon/String.hpp>
 #include <hw/type/beacon/Opaque.hpp>
+#include <hw/utility/Buffer.hpp>
+#include <hw/utility/Allocator.hpp>
 
 void test_types() {
   using namespace hw::type;
