@@ -15,6 +15,8 @@
 #include <hw/type/beacon/Opaque.hpp>
 #include <hw/utility/Buffer.hpp>
 #include <hw/utility/Allocator.hpp>
+#include <hw/utility/Time.hpp>
+#include <hw/utility/Clock.hpp>
 
 void test_types() {
   using namespace hw::type;
