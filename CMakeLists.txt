@@ -14,6 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Point CMake to your custom Boost installation
 # Use CMAKE_PREFIX_PATH or BOOST_ROOT as hints for find_package
 set(BOOST_ROOT "$ENV{HOME}/Toolbox/boost_1_90_0")
+set(Boost_USE_STATIC_LIBS ON)
 set(Boost_NO_SYSTEM_PATHS ON) # Prevent using older system-wide Boost
 
 # Find Boost (Add COMPONENTS like 'system' or 'filesystem' if needed)
@@ -29,4 +30,6 @@ include_directories(
 # For header-only parts of Boost:
 include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
 
+enable_testing()
 add_subdirectory(src)
+
