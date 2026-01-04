@@ -17,6 +17,8 @@
 #include <hw/utility/Allocator.hpp>
 #include <hw/utility/Time.hpp>
 #include <hw/utility/Clock.hpp>
+#include <hw/utility/cce/Counter.hpp>
+#include <hw/utility/cce/FastHashTable.hpp>
 
 void test_types() {
   using namespace hw::type;
