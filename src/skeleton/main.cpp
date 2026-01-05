@@ -19,6 +19,7 @@
 #include <hw/utility/Clock.hpp>
 #include <hw/utility/cce/Counter.hpp>
 #include <hw/utility/cce/FastHashTable.hpp>
+#include <hw/utility/cce/OrderBurstControl.hpp>
 
 void test_types() {
   using namespace hw::type;
