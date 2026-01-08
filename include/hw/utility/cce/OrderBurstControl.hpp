@@ -3,45 +3,47 @@
 
 #include <cstdint>
 #include <hw/utility/Time.hpp>
-#include <hw/utility/Clock.hpp>
 #include <hw/utility/Allocator.hpp>
-#include <hw/utility/cce/Counter.hpp>
-#include <hw/utility/cce/FastHashTable.hpp>
+#include <hw/utility/cce/OrderCounter.hpp>
+#include <hw/utility/cce/HashTable.hpp>
 
 namespace hw::utility::cce {
 
 /**
- * OrderBurstControl: Enforces per-parent order message limits using TLS.
- * Uses a shared Global Clock for consistent timestamping across threads.
+ * OrderBurstControl: Orchestrates per-parent order rate limiting.
+ * * - Decoupled from Clock: Timestamps must be provided by the caller.
+ * - Thread-Safe via TLS: HashMaps and Allocators are thread-local.
+ * - Zero-Heap: All counters are pre-allocated in a thread-local pool.
  */
 template <size_t BUCKETS = 20, size_t MAX_PARENTS = 1024>
 class OrderBurstControl {
 public:
     /**
-     * @param clock Reference to the global calibrated SystemClockTSC
+     * @param window Time window for rate limiting (e.g., 20ms).
+     * @param limit Maximum messages allowed per parent within that window.
      */
     template <typename Duration>
-    OrderBurstControl(const SystemClockTSC& clock, Duration window, size_t limit)
-        : _globalClock(clock)
-        , _windowNs(DurationToNanoseconds(window))
+    OrderBurstControl(Duration window, size_t limit)
+        : _windowNs(DurationToNanoseconds(window))
         , _limit(limit) {}
 
     /**
-     * Registers a new parent order and initializes its burst counter.
+     * Registers a new parent order in the calling thread's local storage.
      */
     void addParent(uint64_t parentOrderID) {
         auto& state = get_state();
+
+        // Ensure we don't double-register and leak a counter from the pool
         if (state.map.find(parentOrderID)) [[unlikely]] return;
 
         auto* counter = state.allocator.allocate(_windowNs, _limit);
         if (counter) [[likely]] {
             state.map.insert(parentOrderID, counter);
-            state.activeParents++;
         }
     }
 
     /**
-     * Removes the parent and recycles the counter memory.
+     * Removes the parent and recycles the OrderCounter memory to the pool.
      */
     void removeParent(uint64_t parentOrderID) {
         auto& state = get_state();
@@ -50,14 +52,16 @@ public:
         if (counter) {
             state.map.erase(parentOrderID);
             state.allocator.free(counter);
-            if (state.activeParents > 0) state.activeParents--;
         }
     }
 
     /**
-     * Hot-path: Check if a child order is allowed for this parent.
+     * Hot-path: Check if a child order is allowed.
+     * @param parentOrderID The ID of the parent to check.
+     * @param nowNs Current timestamp in nanoseconds (e.g., from SystemClockTSC).
+     * @return true if allowed, false if throttled.
      */
-    inline bool addChild(uint64_t parentOrderID) {
+    inline bool addChild(uint64_t parentOrderID, Timestamp nowNs) {
         auto& state = get_state();
         auto* counter = state.map.find(parentOrderID);
 
@@ -65,24 +69,28 @@ public:
             return false;
         }
 
-        // Use the SHARED global clock
-        return counter->increment(_globalClock.now());
+        return counter->increment(nowNs);
     }
 
-    size_t childCount(uint64_t parentOrderID) {
+    /**
+     * Monitoring: Returns current message count for a parent.
+     */
+    size_t childCount(uint64_t parentOrderID) const {
         auto* counter = get_state().map.find(parentOrderID);
         return counter ? counter->value() : 0;
     }
 
-    size_t parentCount() {
-        return get_state().activeParents;
+    /**
+     * Monitoring: Returns number of active parents in this thread.
+     */
+    size_t parentCount() const {
+        return get_state().map.size();
     }
 
 private:
     struct ThreadState {
-        FastSIMDMap<Counter<BUCKETS>, MAX_PARENTS> map;
-        AllocatorTrivial<Counter<BUCKETS>> allocator;
-        size_t activeParents = 0;
+        SwissTableHashmap<OrderCounter<BUCKETS>, MAX_PARENTS> map;
+        AllocatorTrivial<OrderCounter<BUCKETS>> allocator;
 
         ThreadState(size_t capacity) : allocator(capacity) {}
     };
@@ -92,7 +100,6 @@ private:
         return state;
     }
 
-    const SystemClockTSC& _globalClock; // Reference to the singleton/global clock
     const Timestamp _windowNs;
     const size_t _limit;
 };

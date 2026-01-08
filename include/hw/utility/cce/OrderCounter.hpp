@@ -1,5 +1,7 @@
 // --- START FILE: include/hw/utility/cce/OrderCounter.hpp ---
 
+#pragma once
+
 #include <cstdint>
 #include <array>
 #include <algorithm>
