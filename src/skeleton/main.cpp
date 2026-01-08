@@ -20,6 +20,18 @@
 #include <hw/utility/cce/Counter.hpp>
 #include <hw/utility/cce/FastHashTable.hpp>
 #include <hw/utility/cce/OrderBurstControl.hpp>
+#include <hw/utility/cce/OrderCounter.hpp>
+#include <hw/utility/cce/HashTable.hpp>
+
+
+void test_utilities() {
+  using namespace hw::utility;
+  using namespace hw::utility::cce;
+  OrderCounter<10> oc(std::chrono::milliseconds(20), 500);
+
+
+  SwissTableHashmap<int, 1024> mm;
+}
 
 void test_types() {
   using namespace hw::type;
@@ -36,7 +48,7 @@ void test_text() {
 }
 
 int main() {
-  test_text();
+  test_utilities();
 
   return 0;
 }

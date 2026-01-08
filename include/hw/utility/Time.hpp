@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <type_traits>
 #include <string>
 #include <iomanip>
 #include <sstream>
@@ -13,6 +14,16 @@ namespace hw::utility {
 
 using Timestamp = int64_t; // Nanoseconds since Epoch
 using Timepoint = std::chrono::system_clock::time_point;
+
+
+template <typename T>
+struct DurationType : std::false_type {};
+
+template <typename Rep, typename Period>
+struct DurationType<std::chrono::duration<Rep, Period>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool IsDuration = DurationType<T>::value;
 
 
 template <typename Duration>

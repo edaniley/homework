@@ -12,6 +12,7 @@ set(TEST_SOURCES
     TestAllocator.cpp
     TestCounter.cpp
     TestFastHashTable.cpp
+    HashTableTest.cpp
 )
 
 add_executable(utility_tests ${TEST_SOURCES})
