@@ -1,4 +1,5 @@
 // --- START FILE: include/hw/type/beacon/TypeTraits.hpp ---
+
 #pragma once
 
 #include <hw/type/TypeList.hpp>
@@ -22,18 +23,18 @@ namespace trait {
  * Defaults to trait::Unknown if no trait is defined.
  */
 template<typename T, typename = void>
-struct QueryTrait {
+struct QueryTypeTrait {
   using type = trait::Unknown;
 };
 
 template<typename T>
-struct QueryTrait<T, std::void_t<typename T::type_trait>> {
+struct QueryTypeTrait<T, std::void_t<typename T::type_trait>> {
   using type = typename T::type_trait;
 };
 
 // Convenience alias for cleaner meta-programming
 template<typename T>
-using QueryTrait_t = typename QueryTrait<T>::type;
+using QueryTrait = typename QueryTypeTrait<T>::type;
 
 using BeaconFieldTypeList = type_list<
   trait::Numeric,
@@ -47,7 +48,7 @@ using BeaconFieldTypeList = type_list<
 >;
 
 template<typename Type>
-using IsBeaconFieldType = mp_contains<BeaconFieldTypeList, QueryTrait_t<Type>>;
+using IsBeaconFieldType = mp_contains<BeaconFieldTypeList, QueryTrait<Type>>;
 
 template<typename Type>
 concept BeaconFieldType = IsBeaconFieldType<Type>::value;
@@ -62,10 +63,24 @@ using AccessorFieldTypeList = type_list<
 >;
 
 template<typename Type>
-using IsAccessorFieldType = mp_contains<AccessorFieldTypeList, QueryTrait_t<Type>>;
+using IsAccessorFieldType = mp_contains<AccessorFieldTypeList, QueryTrait<Type>>;
 
 template<typename Type>
 concept AccessorFieldType = IsAccessorFieldType<Type>::value;
+
+using OptionalFieldTypeList = type_list<
+  trait::Numeric,
+  trait::Enum,
+  trait::VarString,
+  trait::PaddedString,
+  trait::Opaque
+>;
+
+template<typename Type>
+using IsOptionalFieldType = mp_contains<OptionalFieldTypeList, QueryTrait<Type>>;
+
+template<typename Type>
+concept OptionalFieldType = IsOptionalFieldType<Type>::value;
 
 }
 // --- END FILE: include/hw/type/beacon/TypeTraits.hpp ---

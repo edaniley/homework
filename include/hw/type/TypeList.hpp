@@ -1,3 +1,5 @@
+// --- START FILE:include/hw/type/TypeList.hpp ---
+
 #pragma once
 #include <cstddef>
 #include <type_traits>
@@ -75,22 +77,20 @@ constexpr size_t MaxTypeNameSize() {
   return 0;
 }
 
-namespace detail {
-  template<typename TypeList, typename Name>
-  constexpr size_t FindTypeIndex(Name&& name, size_t index) {
-    if constexpr (mp_empty<TypeList>::value) {
-      return index; // Returns size of list if not found
-    } else {
-      return (TypeName<mp_front<TypeList>>() == name)
-        ? index
-        : FindTypeIndex<mp_pop_front<TypeList>>(name, index + 1);
-    }
-  }
-}
-
-template<typename TypeList>
+template <typename TypeList>
 constexpr size_t FindTypeByName(std::string_view name) {
-  return detail::FindTypeIndex<TypeList>(name, 0);
+  constexpr size_t N = mp_size<TypeList>::value;
+  size_t result = N;
+  mp_for_each<mp_iota_c<N>>([&](auto I) {
+    if (result == N) {
+      using T = mp_at_c<TypeList, I>;
+      if (TypeName<T>() == name) {
+        result = I;
+      }
+    }
+  });
+
+  return result;
 }
 
 static_assert(0 == FindTypeByName<type_list<int, double, char>>("int"));
@@ -110,7 +110,6 @@ constexpr size_t TypeListDataSize() {
 static_assert(15 == TypeListDataSize<type_list<int, double, char, short>>());
 static_assert(0 == TypeListDataSize<type_list<>>());
 
-// nice-to-have for debuggig
 template <typename TypeList>
 std::string TypeListToString() {
   std::ostringstream oss;
@@ -126,3 +125,4 @@ std::string TypeListToString() {
 
 }
 
+// --- END FILE:include/hw/type/TypeList.hpp ---

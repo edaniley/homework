@@ -1,3 +1,5 @@
+// --- START FILE:include/hw/type/NamedType.hpp ---
+
 #pragma once
 
 #include <string_view>
@@ -28,3 +30,5 @@ static_assert(!std::is_same_v<NamedType<"Bid", int>, NamedType<"Ask", int>>);
 static_assert(!std::is_same_v<NamedType<"Bid", int>, NamedType<"Bid", short>>);
 
 }
+
+// --- END FILE:include/hw/type/NamedType.hpp ---

@@ -1,3 +1,5 @@
+// --- START FILE:include/hw/type/TypeInfo.hpp ---
+
 #pragma once
 
 #include <string_view>
@@ -85,3 +87,4 @@ template <typename Type> struct UnderlyingValueType<Type, true> {
 
 }
 
+// --- END FILE:include/hw/type/TypeInfo.hpp ---

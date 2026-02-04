@@ -1,9 +1,12 @@
+
+// --- START FILE:include/hw/type/NameTag.hpp ---
+
 #pragma once
 
 #include <type_traits>
 #include <string_view>
-#include <ostream>
 #include <compare>
+#include <ostream>
 
 namespace hw::type {
 
@@ -34,7 +37,6 @@ struct NameTag {
     return toString() <=> other.toString();
   }
 
-  // Explicit equality operator for performance/clarity
   constexpr bool operator == (const NameTag& other) const noexcept {
     return toString() == other.toString();
   }
@@ -45,7 +47,6 @@ struct NameTag {
 // Deduction guide (C++17) to allow NameTag("ping") without explicit size.
 template <size_t N>
 NameTag(const char (&)[N]) -> NameTag<N>;
-
 
 template <size_t N>
 std::ostream& operator << (std::ostream& os, const NameTag<N>& tag) {
@@ -59,3 +60,4 @@ static_assert (NameTag("pong") >  NameTag("ping"));
 
 }
 
+// --- END FILE:include/hw/type/NameTag.hpp ---
