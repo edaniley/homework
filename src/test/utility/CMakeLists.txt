@@ -13,6 +13,7 @@ set(TEST_SOURCES
     TestCounter.cpp
     TestFastHashTable.cpp
     TestSwissTableMT.cpp
+    OrderBurstControlTest.cpp
     HashTableTest.cpp
 )
 

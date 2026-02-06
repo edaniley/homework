@@ -26,13 +26,27 @@
 
 void test_burst_control() {
   using namespace hw::utility;
-  OrderBurstControl ctl(std::chrono::milliseconds(10), 10,  std::chrono::milliseconds(5), 3);
-  const auto start = std::chrono::steady_clock::now().time_since_epoch().count();
+  using Timepoint = std::chrono::system_clock::time_point;
+  using BurstControl = OrderBurstControl<32>;
+  BurstControl ctl(std::chrono::milliseconds(10), 10,  std::chrono::milliseconds(5), 3);
+  const Timepoint zero = std::chrono::system_clock::now();
+  const auto start = zero.time_since_epoch().count();
   const auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(1)).count();
 
   ctl.evaluate(start);
   for (int i = 0; i < 30; ++i) {
-    ctl.evaluate(start + (delta * i));
+    bool rc = ctl.evaluate(start + (delta * i));
+    BurstControl::State state = ctl.state();
+    std::chrono::system_clock::time_point winstart {
+        std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            std::chrono::system_clock::time_point(
+              std::chrono::nanoseconds(state.start_time)
+            )
+        )
+    };
+
+    std::cout << frmt::format("rc:{} mode:{} start:{:%T} count:{}",
+        rc, (state.mode == BurstControl::Mode::Normal ? "Normal" : "Cooldown"), winstart, state.total_count) << std::endl;
   }
   exit(0);
 
