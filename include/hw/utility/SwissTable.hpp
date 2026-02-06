@@ -12,7 +12,7 @@
 	#include <bitset>
 #endif
 
-namespace hw::utility {
+namespace hw::utility::swisstable {
 
 namespace detail {
   // copied from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp

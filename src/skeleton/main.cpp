@@ -19,11 +19,24 @@
 #include <hw/utility/Clock.hpp>
 #include <hw/utility/cce/Counter.hpp>
 #include <hw/utility/cce/FastHashTable.hpp>
-#include <hw/utility/cce/OrderBurstControl.hpp>
+// #include <hw/utility/cce/OrderBurstControl.hpp>
 #include <hw/utility/cce/OrderCounter.hpp>
 #include <hw/utility/cce/HashTable.hpp>
+#include <hw/utility/OrderBurstControl.hpp>
 
+void test_burst_control() {
+  using namespace hw::utility;
+  OrderBurstControl ctl(std::chrono::milliseconds(10), 10,  std::chrono::milliseconds(5), 3);
+  const auto start = std::chrono::steady_clock::now().time_since_epoch().count();
+  const auto delta = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(1)).count();
 
+  ctl.evaluate(start);
+  for (int i = 0; i < 30; ++i) {
+    ctl.evaluate(start + (delta * i));
+  }
+  exit(0);
+
+}
 void test_utilities() {
   using namespace hw::utility;
   using namespace hw::utility::cce;
@@ -48,6 +61,7 @@ void test_text() {
 }
 
 int main() {
+  test_burst_control();
   test_utilities();
 
   return 0;
