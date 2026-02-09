@@ -15,6 +15,7 @@ set(TEST_SOURCES
     TestSwissTableMT.cpp
     OrderBurstControlTest.cpp
     HashTableTest.cpp
+    TestHashArray.cpp
 )
 
 add_executable(utility_tests ${TEST_SOURCES})
