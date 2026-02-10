@@ -49,10 +49,10 @@ enum class DuplicatePolicy    { Reject, Overwrite };
 // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#techs=SSE_ALL
 
 
-template <typename Value, size_t SLOTS, DuplicatePolicy Policy>
+template <typename Value, size_t MAX_KEYS, DuplicatePolicy Policy>
 class HashmapST {
-  static_assert (!(SLOTS & (SLOTS - 1)));
-  static_assert (SLOTS >= 16);
+  static_assert (!(MAX_KEYS & (MAX_KEYS - 1)));
+  static_assert (MAX_KEYS >= 16);
 
 #if defined(__SSE2__) && defined(DEBUG)
   static void print(__m128i value) {
@@ -74,14 +74,12 @@ public:
   inline Value * find (uint64_t key) const noexcept {
     const uint64_t h = detail::hash(key);
     const int8_t tag = static_cast<int8_t>(h & 0x7F); // tag is first 7 bits
-    const size_t idx = (h >> 7) & (SLOTS - 1);        // starting slot
+    const size_t idx = (h >> 7) & (MAX_KEYS - 1);        // starting slot
 
-
-#if defined(__SSE2__)
     const __m128i target = _mm_set1_epi8(tag); // 16 bytes , each set to tag
     // select and probe group starting with idx
-    for (size_t i = 0; i < SLOTS; i += SIMD_SIZE) {
-      const size_t j = (idx + i) & (SLOTS - 1);
+    for (size_t i = 0; i < MAX_KEYS; i += SIMD_SIZE) {
+      const size_t j = (idx + i) & (MAX_KEYS - 1);
       const __m128i group = _mm_loadu_si128(reinterpret_cast<const __m128i*>(&_ctrl[j]));
 
       // _mm_cmpeq_epi8 intrinsic performs an element-wise comparison for equality on two 128-bit SIMD registers,
@@ -93,7 +91,7 @@ public:
       //    If the corresponding bytes in the input vectors are equal, the resulting byte is set to OxFF (all bits are 1).
       //    If the corresponding bytes are not equal, the resulting byte is set to 0x00 (all bits are 0).
       const __m128i matchedBytes =_mm_cmpeq_epi8(group, target);
-      //_mm movemask_epi8 intrinsic is an SSE2 instruction that takes a 128-bit integer vector
+      //_mm_movemask_epi8 intrinsic is an SSE2 instruction that takes a 128-bit integer vector
       //    containing 16 separate 8-bit elements and produces a 16-bit integer (an int) where each bit is
       //    the most significant bit (MSB) of the corresponding byte in the input vector.
       // The function extracts the most significant bit (the sign bit) from each of the 16 bytes in
@@ -110,7 +108,7 @@ public:
       uint32_t matchMask = static_cast<uint32_t>(matchedBits);
       while (matchMask) {
         const int bit = __builtin_ctz(matchMask); // returns 1st set bit i.e. index of potential match
-        const size_t entry_idx = (j + static_cast<size_t>(bit)) & (SLOTS - 1);
+        const size_t entry_idx = (j + static_cast<size_t>(bit)) & (MAX_KEYS - 1);
         if (_keys[entry_idx] == key) [[likely]] {
           return _values [entry_idx];
         }
@@ -122,26 +120,16 @@ public:
       if (emptyMask) [[likely]] return nullptr;
     }
     return nullptr;
-#else
-    for (size_t i = 0; i < SLOTS; ++i) {
-      const size_t pos = (idx + i) & (SLOTS - 1);
-      const int8_t c = _ctrl[pos];
-
-      if (c == tag && _keys[pos] == key) return _values[pos];
-      if (c == Control::Empty) return nullptr; // stop on empty
-    }
-    return nullptr;
-#endif
   }
 
   // insert or update; returns false if table is fuLl
   inline bool insert(uint64_t key, Value* value) noexcept {
     const uint64_t hashval = detail::hash(key);
     const int8_t tag = static_cast<int8_t>(hashval & 0x7F);
-    const size_t idx = (hashval >> 7) & (SLOTS - 1);
+    const size_t idx = (hashval >> 7) & (MAX_KEYS - 1);
 
-    for (size_t i = 0; i < SLOTS; ++ i) {
-      const size_t pos = (idx + i) & (SLOTS - 1);
+    for (size_t i = 0; i < MAX_KEYS; ++ i) {
+      const size_t pos = (idx + i) & (MAX_KEYS - 1);
       const int8_t ctrl = _ctrl[pos];
 
       // Empty or Deleted: claim slot
@@ -170,9 +158,9 @@ public:
   inline void erase(uint64_t key) noexcept {
     const uint64_t h = detail::hash(key);
     const int8_t tag = static_cast<int8_t>(h & 0x7F);
-    const size_t idx = (h >> 7) & (SLOTS - 1);
-    for (size_t i = 0; i < SLOTS; ++i) {
-      const size_t pos = (idx + i) & (SLOTS - 1);
+    const size_t idx = (h >> 7) & (MAX_KEYS - 1);
+    for (size_t i = 0; i < MAX_KEYS; ++i) {
+      const size_t pos = (idx + i) & (MAX_KEYS - 1);
       const int8_t c = _ctrl[pos];
 
       if (c == Control::Empty) return;
@@ -186,10 +174,10 @@ public:
   }
 
   inline size_t size() const noexcept { return _size; }
-  static constexpr size_t capacity() noexcept { return SLOTS; }
+  static constexpr size_t capacity() noexcept { return MAX_KEYS; }
 
   inline void clear() noexcept {
-    for (size_t i = 0; i < SLOTS; ++i) {
+    for (size_t i = 0; i < MAX_KEYS; ++i) {
       _ctrl   [i] = Control::Empty;
       _keys   [i] = 0;
       _values [i] = nullptr;
@@ -204,14 +192,14 @@ public:
   // to support writing test cases template <typename Callback>
   template <typename Callback>
   inline void for_each(Callback && callback) const noexcept {
-    for (size_t pos = 0; pos < SLOTS; ++pos) {
+    for (size_t pos = 0; pos < MAX_KEYS; ++pos) {
       const int8_t c = _ctrl[pos];
       if (c >= 0) {// Skip Empty/Deleted
         const uint64_t key = _keys[pos];
         if (_values[pos] == nullptr) continue;
         const uint64_t h = detail::hash(key);
-        const size_t idx = (h >> 7) & (SLOTS -1);
-        const size_t distance = (pos + SLOTS - idx) & (SLOTS -1);
+        const size_t idx = (h >> 7) & (MAX_KEYS -1);
+        const size_t distance = (pos + MAX_KEYS - idx) & (MAX_KEYS -1);
         callback (pos, key, distance);
       }
     }
@@ -219,41 +207,41 @@ public:
 
 private:
   // control bytes with tail padding to allow safe 16-byte Loads near the end
-  alignas (16) std::array<int8_t, SLOTS + SIMD_SIZE> _ctrl;
-  std::array<uint64_t, SLOTS> _keys;
-  std::array<Value*, SLOTS> _values;
+  alignas (16) std::array<int8_t, MAX_KEYS + SIMD_SIZE> _ctrl;
+  std::array<uint64_t, MAX_KEYS> _keys;
+  std::array<Value*, MAX_KEYS> _values;
   size_t _size;
 
-  // copy first SIMD_SIZE control bytes to tail (indices [SLOTS ... SLOTS+SIMD_SIZE-1])
+  // copy first SIMD_SIZE control bytes to tail (indices [MAX_KEYS ... MAX_KEYS+SIMD_SIZE-1])
   inline void mirror_tail_() noexcept {
-    std::memcpy(&_ctrl[SLOTS], &_ctrl[0], SIMD_SIZE);
+    std::memcpy(&_ctrl[MAX_KEYS], &_ctrl[0], SIMD_SIZE);
   }
 
   // set control byte and maintain tail mirror when touching head
   inline void set_ctrl_(size_t pos, int8_t v) noexcept {
     _ctrl[pos] = v;
-    if (pos < SIMD_SIZE) _ctrl[SLOTS + pos] = v;
+    if (pos < SIMD_SIZE) _ctrl[MAX_KEYS + pos] = v;
   }
 };
 
 //
 // Thread-safe SwissTable (atomic ctrl/keys/values, Busy reservation)
 //
-template <typename Value, size_t SLOTS, DuplicatePolicy Policy>
+template <typename Value, size_t MAX_KEYS, DuplicatePolicy Policy>
 class HashmapMT {
-  static_assert(!(SLOTS & (SLOTS - 1)), "SLOTS must be a power of two");
-  static_assert(SLOTS >= 16, "SLOTS must be >= 16");
+  static_assert(!(MAX_KEYS & (MAX_KEYS - 1)), "MAX_KEYS must be a power of two");
+  static_assert(MAX_KEYS >= 16, "MAX_KEYS must be >= 16");
   static_assert(std::atomic<int8_t>::is_always_lock_free);
   static_assert(std::atomic<Value *>::is_always_lock_free);
   static_assert(std::atomic<size_t>::is_always_lock_free);
 
 public:
   HashmapMT () noexcept : _size(0) {
-    for (size_t i = 0; i < SLOTS + SIMD_SIZE; ++i)
+    for (size_t i = 0; i < MAX_KEYS + SIMD_SIZE; ++i)
       _ctrl[i].store(Control::Empty, std::memory_order_relaxed);
 
     mirror_tail_relaxed_();
-    for (size_t i = 0; i < SLOTS; ++i) {
+    for (size_t i = 0; i < MAX_KEYS; ++i) {
       _keys[i].store(0, std::memory_order_relaxed);
       _values[i].store(nullptr, std::memory_order_relaxed);
     }
@@ -262,10 +250,10 @@ public:
   inline Value* find(uint64_t key) const noexcept {
     const uint64_t h = detail::hash(key);
     const int8_t tag = static_cast<int8_t>(h & 0x7F);
-    const size_t idx = (h >> 7) & (SLOTS - 1);
+    const size_t idx = (h >> 7) & (MAX_KEYS - 1);
 
-    for (size_t i = 0; i < SLOTS; i += SIMD_SIZE) {
-      const size_t j = (idx + i) & (SLOTS - 1);
+    for (size_t i = 0; i < MAX_KEYS; i += SIMD_SIZE) {
+      const size_t j = (idx + i) & (MAX_KEYS - 1);
       // Build masks using RELAXED loads onLy (fast path).
       uint16_t matchMask = 0, emptyMask = 0;
       for (int k = 0; k < static_cast<int>(SIMD_SIZE); ++k) {
@@ -277,7 +265,7 @@ public:
       // Process candidate matches first (re-verify with ACQUIRE before reading key/value).
       while (matchMask) {
         const int bit = __builtin_ctz(matchMask);
-        const size_t entry_idx = (j + static_cast<size_t>(bit)) & (SLOTS - 1);
+        const size_t entry_idx = (j + static_cast<size_t>(bit)) & (MAX_KEYS - 1);
 
         // Re-check ctrl with ACQUIRE to synchronize with publisher of this slot.
         const int8_t c2 = _ctrl[entry_idx].load(std::memory_order_acquire);
@@ -295,7 +283,7 @@ public:
       // If any empty was observed, re-confirm the first empty with ACQUIRE before returning.
       if (emptyMask) [[likely]] {
         const int firstEmptyBit = __builtin_ctz(emptyMask);
-        const size_t empty_idx = (j + static_cast<size_t>(firstEmptyBit)) & (SLOTS - 1);
+        const size_t empty_idx = (j + static_cast<size_t>(firstEmptyBit)) & (MAX_KEYS - 1);
 
         // Re-check with acquire to avoid false negatives due to a relaxed, stale Empty.
         if (_ctrl[empty_idx].load(std::memory_order_acquire) == Control::Empty) {
@@ -310,10 +298,10 @@ public:
   inline bool insert (uint64_t key, Value* value) noexcept {
     const uint64_t h = detail::hash(key);
     const int8_t tag = static_cast<int8_t>(h & 0x7F);
-    const size_t idx = (h >> 7) & (SLOTS - 1);
+    const size_t idx = (h >> 7) & (MAX_KEYS - 1);
 
-    for (size_t i = 0; i < SLOTS; ++i) {
-      const size_t pos = (idx + i) & (SLOTS - 1);
+    for (size_t i = 0; i < MAX_KEYS; ++i) {
+      const size_t pos = (idx + i) & (MAX_KEYS - 1);
       int8_t ctrl = _ctrl[pos].load(std::memory_order_relaxed);
 
       if (ctrl == tag) {
@@ -360,10 +348,10 @@ public:
   inline void erase(uint64_t key) noexcept {
     const uint64_t h = detail::hash(key);
     const int8_t tag = static_cast<int8_t>(h & 0x7F);
-    const size_t idx = (h >> 7) & (SLOTS - 1);
+    const size_t idx = (h >> 7) & (MAX_KEYS - 1);
 
-    for (size_t i = 0; i < SLOTS; ++i) {
-      const size_t pos = (idx + i) & (SLOTS - 1);
+    for (size_t i = 0; i < MAX_KEYS; ++i) {
+      const size_t pos = (idx + i) & (MAX_KEYS - 1);
       const int8_t c = _ctrl[pos].load(std::memory_order_acquire);
       if (c == Control::Empty) return;
       if (c == tag &&_keys[pos].load(std::memory_order_acquire) == key) {
@@ -376,16 +364,16 @@ public:
   }
 
   inline size_t size() const noexcept { return _size.load(std::memory_order_relaxed); }
-  static constexpr size_t capacity() noexcept { return SLOTS; }
+  static constexpr size_t capacity() noexcept { return MAX_KEYS; }
 
   inline void clear() noexcept {
-    for (size_t i = 0; i < SLOTS; ++i) {
+    for (size_t i = 0; i < MAX_KEYS; ++i) {
       _values[i].store(nullptr, std::memory_order_relaxed);
       _keys[i].store(0, std::memory_order_relaxed);
       _ctrl[i].store(Control::Empty, std:: memory_order_relaxed);
     }
     for (size_t k = 0; k< SIMD_SIZE; ++k) {
-      _ctrl[SLOTS + k].store(Control::Empty, std::memory_order_relaxed);
+      _ctrl[MAX_KEYS + k].store(Control::Empty, std::memory_order_relaxed);
     }
     _size.store(0, std:: memory_order_relaxed) ;
   }
@@ -396,15 +384,15 @@ public:
   // to support writing test cases
   template <typename Callback>
   inline void for_each(Callback && callback) const noexcept {
-    for (size_t pos = 0; pos < SLOTS; ++pos) {
+    for (size_t pos = 0; pos < MAX_KEYS; ++pos) {
       const int8_t c = _ctrl[pos].load(std::memory_order_acquire);
       if (c >= 0) {// Skip Empty/DeLeted/Busy
       const uint64_t key = _keys[pos].load(std::memory_order_acquire);
       Value* p = _values[pos].load(std::memory_order_acquire);
       if (p == nullptr) continue;
       const uint64_t h = detail::hash(key);
-      const size_t idx = (h >> 7) & (SLOTS - 1);
-      size_t distance = (pos + SLOTS - idx) & (SLOTS - 1);
+      const size_t idx = (h >> 7) & (MAX_KEYS - 1);
+      size_t distance = (pos + MAX_KEYS - idx) & (MAX_KEYS - 1);
       callback (pos, key, distance);
       }
     }
@@ -413,35 +401,35 @@ public:
 protected:
   inline void mirror_tail_relaxed_() noexcept {
     for (size_t k = 0; k < SIMD_SIZE; ++k)
-     _ctrl[SLOTS + k].store(_ctrl[k].load(std::memory_order_relaxed),
+     _ctrl[MAX_KEYS + k].store(_ctrl[k].load(std::memory_order_relaxed),
                             std::memory_order_relaxed);
   }
 
   inline void set_ctrl_(size_t pos, int8_t v) noexcept {
     _ctrl[pos].store(v, std::memory_order_release);
     if (pos < SIMD_SIZE)
-      _ctrl[SLOTS + pos].store(v, std::memory_order_release);
+      _ctrl[MAX_KEYS + pos].store(v, std::memory_order_release);
   }
 
 protected:
-  alignas (16) std::array<std::atomic<int8_t>, SLOTS + SIMD_SIZE> _ctrl;
-  std::array<std::atomic<uint64_t>, SLOTS> _keys;
-  std::array<std::atomic<Value *>, SLOTS>_values;
+  alignas (16) std::array<std::atomic<int8_t>, MAX_KEYS + SIMD_SIZE> _ctrl;
+  std::array<std::atomic<uint64_t>, MAX_KEYS> _keys;
+  std::array<std::atomic<Value *>, MAX_KEYS>_values;
   alignas(64) std::atomic<size_t> _size;
 };
 
 // compile-time selection
-template <typename Value, size_t SLOTS,
+template <typename Value, size_t MAX_KEYS,
           ThreadSafetyPolicy ThreadSafety = ThreadSafetyPolicy::Multi,
           DuplicatePolicy Policy = DuplicatePolicy::Reject>
 class Hashmap : public std::conditional_t<
                           ThreadSafety == ThreadSafetyPolicy::Multi,
-                          HashmapMT<Value, SLOTS, Policy>,
-                          HashmapST<Value, SLOTS, Policy>> {
+                          HashmapMT<Value, MAX_KEYS, Policy>,
+                          HashmapST<Value, MAX_KEYS, Policy>> {
 
   using Base = std::conditional_t<ThreadSafety == ThreadSafetyPolicy::Multi,
-                                  HashmapMT<Value, SLOTS, Policy>,
-                                  HashmapST<Value, SLOTS, Policy>>;
+                                  HashmapMT<Value, MAX_KEYS, Policy>,
+                                  HashmapST<Value, MAX_KEYS, Policy>>;
 public:
   using Base:: Base;
 };

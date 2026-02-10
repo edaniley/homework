@@ -6,48 +6,57 @@
 #include <cstring>
 #include <random>
 #include <barrier>
+#include <iostream>
+#include <set>
 
 using namespace hw::utility;
+using namespace hw::utility::swisstable;
 
-// Define a compliant KeyType
+// -----------------------------------------------------------------------------
+// Test Helpers
+// -----------------------------------------------------------------------------
+
+// A controllable key to force collisions or specific hash patterns
 struct TestKey {
     uint64_t id;
-    char padding[8]; // Make it slightly larger than just an int
+    uint64_t forced_hash;
 
-    TestKey() : id(0) { std::memset(padding, 0, sizeof(padding)); }
-    explicit TestKey(uint64_t v) : id(v) { std::memset(padding, 0, sizeof(padding)); }
-
-    uint64_t hash() const noexcept {
-        // Simple hash for testing
-        // Mix bits to ensure good distribution across 7-bit tags
-        uint64_t x = id;
-        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9;
-        x = (x ^ (x >> 27)) * 0x94d049bb133111eb;
-        x = x ^ (x >> 31);
-        return x;
+    TestKey() : id(0), forced_hash(0) {}
+    TestKey(uint64_t v, uint64_t h = 0) : id(v), forced_hash(h) {
+        if (forced_hash == 0) forced_hash = splitmix64(id);
     }
 
-    bool operator==(const TestKey& other) const {
-        return id == other.id;
+    uint64_t hash() const noexcept { return forced_hash; }
+    
+    bool operator==(const TestKey& other) const { return id == other.id; }
+    bool operator!=(const TestKey& other) const { return id != other.id; }
+
+private:
+    static uint64_t splitmix64(uint64_t x) {
+        x += 0x9e3779b97f4a7c15;
+        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9;
+        x = (x ^ (x >> 27)) * 0x94d049bb133111eb;
+        return x ^ (x >> 31);
     }
 };
 
-BOOST_AUTO_TEST_SUITE(HashArrayTests)
+// -----------------------------------------------------------------------------
+// Test Suite
+// -----------------------------------------------------------------------------
 
-// 1. Basic Single Threaded Functionality
-BOOST_AUTO_TEST_CASE(test_hasharray_basic) {
-    HashArray<TestKey, int, 16> table;
-    int val1 = 100;
-    int val2 = 200;
+BOOST_AUTO_TEST_SUITE(HashArrayTestSuite)
+
+//
+// 1. Single Threaded Policy Tests
+//
+BOOST_AUTO_TEST_CASE(ST_BasicOperations) {
+    constexpr size_t CAP = 16;
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Single> table;
+    int val1 = 1, val2 = 2;
 
     // Insert
-    auto res1 = table.insert(TestKey(1), &val1);
-    bool r1 = res1 == HashArray<TestKey, int, 16>::InsertResult::Success;
-    BOOST_CHECK(r1);
-    
-    auto res2 = table.insert(TestKey(2), &val2);
-    bool r2 = res2 == HashArray<TestKey, int, 16>::InsertResult::Success;
-    BOOST_CHECK(r2);
+    BOOST_CHECK(table.insert(TestKey(1), &val1) == InsertResult::Success);
+    BOOST_CHECK(table.insert(TestKey(2), &val2) == InsertResult::Success);
 
     // Find
     BOOST_CHECK_EQUAL(table.find(TestKey(1)), &val1);
@@ -55,146 +64,231 @@ BOOST_AUTO_TEST_CASE(test_hasharray_basic) {
     BOOST_CHECK(table.find(TestKey(3)) == nullptr);
 
     // Duplicate
-    auto res3 = table.insert(TestKey(1), &val2);
-    bool r3 = res3 == HashArray<TestKey, int, 16>::InsertResult::DuplicateKey;
-    BOOST_CHECK(r3);
+    BOOST_CHECK(table.insert(TestKey(1), &val2) == InsertResult::DuplicateKey);
 }
 
-// 2. Concurrent Insert (Disjoint Keys)
-BOOST_AUTO_TEST_CASE(test_concurrent_insert_disjoint) {
-    constexpr size_t CAPACITY = 4096;
-    constexpr size_t THREADS = 4;
-    constexpr size_t ITEMS_PER_THREAD = 1000;
-    
-    HashArray<TestKey, int, CAPACITY> table;
-    std::vector<std::thread> threads;
-    std::atomic<bool> error{false};
-    int val = 42; // Dummy value
+BOOST_AUTO_TEST_CASE(ST_TableFull) {
+    constexpr size_t CAP = 16;
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Single> table;
+    int val = 0;
 
-    auto worker = [&](int thread_id) {
-        for (size_t i = 0; i < ITEMS_PER_THREAD; ++i) {
-            uint64_t id = i * THREADS + thread_id; // Unique ID
-            if (table.insert(TestKey(id), &val) != HashArray<TestKey, int, CAPACITY>::InsertResult::Success) {
-                error = true;
-            }
-        }
-    };
-
-    for (size_t i = 0; i < THREADS; ++i) threads.emplace_back(worker, i);
-    for (auto& t : threads) t.join();
-
-    BOOST_CHECK(!error);
-
-    // Verify presence
-    for (size_t i = 0; i < THREADS * ITEMS_PER_THREAD; ++i) {
-        if (table.find(TestKey(i)) == nullptr) {
-            BOOST_ERROR("Missing key: " << i);
-        }
+    for (size_t i = 0; i < CAP; ++i) {
+        BOOST_CHECK(table.insert(TestKey(i), &val) == InsertResult::Success);
     }
-}
 
-// 3. Concurrent Read/Write (Reader should see inserted values eventually)
-BOOST_AUTO_TEST_CASE(test_concurrent_read_write) {
-    constexpr size_t CAPACITY = 4096;
-    HashArray<TestKey, int, CAPACITY> table;
-    std::atomic<bool> running{true};
-    int val = 1;
-
-    std::thread writer([&]() {
-        for (size_t i = 0; i < 2000; ++i) {
-            table.insert(TestKey(i), &val);
-            std::this_thread::sleep_for(std::chrono::microseconds(1)); // Throttle slightly
-        }
-        running = false;
-    });
-
-    std::thread reader([&]() {
-        size_t found_count = 0;
-        while (running || found_count < 2000) {
-            size_t current_found = 0;
-            for (size_t i = 0; i < 2000; ++i) {
-                if (table.find(TestKey(i)) != nullptr) {
-                    current_found++;
-                }
-            }
-            if (!running && current_found == 2000) break;
-            
-            // Should be monotonic mostly, but let's just ensure no crashes
-            std::this_thread::yield();
-        }
-    });
-
-    writer.join();
-    reader.join();
+    // Table is full
+    BOOST_CHECK(table.insert(TestKey(CAP), &val) == InsertResult::TableFull);
     
-    // Final check
-    for (size_t i = 0; i < 2000; ++i) {
+    // Check all exist
+    for (size_t i = 0; i < CAP; ++i) {
         BOOST_CHECK(table.find(TestKey(i)) != nullptr);
     }
 }
 
-// 4. Stress Test: High Contention (Same Slots)
-BOOST_AUTO_TEST_CASE(test_high_contention) {
-    // Small capacity to force collisions and probing
-    constexpr size_t CAPACITY = 64; 
-    constexpr size_t THREADS = 4;
-    // Try to insert more items than capacity concurrently to verify TableFull/Busy logic
-    
-    HashArray<TestKey, size_t, CAPACITY> table;
-    std::vector<std::thread> threads;
-    std::atomic<size_t> success_count{0};
-    std::atomic<size_t> full_count{0};
-    std::vector<size_t> values(THREADS * 20); // Storage for values
+BOOST_AUTO_TEST_CASE(ST_CollisionAndProbing) {
+    constexpr size_t CAP = 16;
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Single> table;
+    int val = 0;
 
-    auto worker = [&](int id) {
-        for (size_t i = 0; i < 20; ++i) {
-            // Keys that hash to similar slots
-            // With size 64, many keys will collide naturally.
-            // We insert random keys.
-            uint64_t key_id = (size_t)rand() % 10000; 
-            auto res = table.insert(TestKey(key_id), &values[id * 20 + i]);
-            
-            if (res == HashArray<TestKey, size_t, CAPACITY>::InsertResult::Success) {
-                success_count++;
-            } else if (res == HashArray<TestKey, size_t, CAPACITY>::InsertResult::TableFull) {
-                full_count++;
-            }
-        }
-    };
-
-    for (size_t i = 0; i < THREADS; ++i) threads.emplace_back(worker, i);
-    for (auto& t : threads) t.join();
-
-    // Verification
-    // Total successful inserts <= CAPACITY
-    BOOST_CHECK(success_count <= CAPACITY);
-    // Note: Due to duplicates, success_count might be less than table size if we generated dupes.
+    // Force all keys to hash to the same slot (e.g., hash=0)
+    // The implementation uses: 
+    //   tag = hash & 0x7F
+    //   start_idx = (hash >> 7) & (MAX_KEYS - 1)
+    // So hash=0 => tag=0, start_idx=0.
     
-    size_t actual_count = 0;
-    table.for_each([&](const TestKey&, size_t*) {
-        actual_count++;
-    });
-    
-    BOOST_CHECK_EQUAL(actual_count, success_count);
+    for (size_t i = 0; i < CAP; ++i) {
+        // Different IDs, same hash -> massive collision
+        TestKey k(i, 0); 
+        BOOST_CHECK(table.insert(k, &val) == InsertResult::Success);
+    }
+
+    // Verify retrieval works despite collisions
+    for (size_t i = 0; i < CAP; ++i) {
+        TestKey k(i, 0);
+        BOOST_CHECK(table.find(k) != nullptr);
+    }
 }
 
-// 5. ForEach Traversal
-BOOST_AUTO_TEST_CASE(test_foreach) {
-    constexpr size_t CAPACITY = 128;
-    HashArray<TestKey, int, CAPACITY> table;
+//
+// 2. Multi Threaded Policy Tests (Functional)
+//
+BOOST_AUTO_TEST_CASE(MT_BasicOperations) {
+    constexpr size_t CAP = 32;
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    int val = 42;
+
+    BOOST_CHECK(table.insert(TestKey(100), &val) == InsertResult::Success);
+    BOOST_CHECK_EQUAL(table.find(TestKey(100)), &val);
+    BOOST_CHECK(table.find(TestKey(999)) == nullptr);
+}
+
+BOOST_AUTO_TEST_CASE(MT_LibraryKeyType) {
+    // Verify the provided Key<SIZE> class works
+    constexpr size_t CAP = 16;
+    using LibKey = hw::utility::swisstable::Key<8>;
+    HashArray<LibKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    
+    LibKey k1;
+    *k1.data<uint64_t>() = 12345;
+    
     int val = 1;
+    BOOST_CHECK(table.insert(k1, &val) == InsertResult::Success);
     
-    for(size_t i=0; i<50; ++i) {
-        table.insert(TestKey(i), &val);
+    LibKey k2;
+    *k2.data<uint64_t>() = 12345;
+    BOOST_CHECK_EQUAL(table.find(k2), &val); // k2 == k1
+    
+    LibKey k3;
+    *k3.data<uint64_t>() = 67890;
+    BOOST_CHECK(table.find(k3) == nullptr);
+}
+
+//
+// 3. Stress Tests (Multi Threaded)
+//
+
+BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Unique) {
+    constexpr size_t CAP = 4096;
+    constexpr int NUM_THREADS = 8;
+    constexpr int ITEMS_PER_THREAD = CAP / NUM_THREADS;
+    
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    std::vector<std::thread> threads;
+    std::vector<int> values(CAP); // Stable addresses
+    std::atomic<int> errors{0};
+
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&, t]() {
+            for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+                int id = t * ITEMS_PER_THREAD + i;
+                TestKey k(id);
+                if (table.insert(k, &values[id]) != InsertResult::Success) {
+                    errors++;
+                }
+            }
+        });
     }
+
+    for (auto& t : threads) t.join();
+
+    BOOST_CHECK_EQUAL(errors.load(), 0);
+
+    // Verify all found
+    for (int i = 0; i < NUM_THREADS * ITEMS_PER_THREAD; ++i) {
+        TestKey k(i);
+        if (table.find(k) == nullptr) {
+            BOOST_ERROR("Failed to find key " << i);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Duplicates) {
+    // Multiple threads trying to insert the SAME keys.
+    // Only one should succeed per key.
+    constexpr size_t CAP = 1024;
+    constexpr int NUM_THREADS = 8;
     
-    std::atomic<size_t> count{0};
-    table.for_each([&](const TestKey& k, int* v) {
-        count++;
-        BOOST_CHECK_EQUAL(v, &val);
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    std::vector<std::thread> threads;
+    int val = 99;
+    std::atomic<int> success_count{0};
+
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&]() {
+            for (int i = 0; i < (int)CAP; ++i) {
+                // Everyone tries to insert key 'i'
+                if (table.insert(TestKey(i), &val) == InsertResult::Success) {
+                    success_count++;
+                }
+            }
+        });
+    }
+
+    for (auto& t : threads) t.join();
+
+    // Exactly CAP successful inserts (one for each key 0..1023)
+    BOOST_CHECK_EQUAL(success_count.load(), CAP);
+}
+
+BOOST_AUTO_TEST_CASE(Stress_ReadWhileWrite) {
+    constexpr size_t CAP = 2048;
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    std::atomic<bool> done{false};
+    int val = 1;
+
+    // Reader thread
+    std::thread reader([&]() {
+        while (!done) {
+            // Just continuously scan random keys to check for consistency/crashes
+            // We can't guarantee what is found or not, but it shouldn't segfault or hang
+            for (int i = 0; i < 100; ++i) {
+                table.find(TestKey(rand() % CAP));
+            }
+            std::this_thread::yield();
+        }
     });
+
+    // Writer thread
+    std::thread writer([&]() {
+        for (size_t i = 0; i < CAP; ++i) {
+            table.insert(TestKey(i), &val);
+            if (i % 100 == 0) std::this_thread::yield();
+        }
+        done = true;
+    });
+
+    writer.join();
+    reader.join();
+
+    // Final check
+    int found = 0;
+    for (size_t i = 0; i < CAP; ++i) {
+        if (table.find(TestKey(i))) found++;
+    }
+    BOOST_CHECK_EQUAL(found, CAP);
+}
+
+BOOST_AUTO_TEST_CASE(Stress_HighContention_WrapAround) {
+    // Force collisions at the END of the table to test wrap-around logic under concurrency
+    constexpr size_t CAP = 32;
+    constexpr int NUM_THREADS = 4;
     
-    BOOST_CHECK_EQUAL(count, 50);
+    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    std::vector<std::thread> threads;
+    std::atomic<int> successes{0};
+    int val = 1;
+
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&, t]() {
+            // Generate keys that all map to the last bucket or near it
+            // Assuming CAP=32 (power of 2), mask is 0x1F.
+            // (hash >> 7) & 0x1F is the start index.
+            // We want start index to be, say, 31.
+            // So hash >> 7 should be 31 (plus multiples of 32).
+            // hash = (31 << 7) = 3968.
+            
+            for (int i = 0; i < 20; ++i) {
+                // Unique IDs, but colliding hash start
+                uint64_t id = t * 100 + i;
+                uint64_t target_hash = (31 << 7) | (id & 0x7F); // preserve some tag variance or strict?
+                // actually let's force strict tag collision too to test linear probe hard
+                target_hash = (31 << 7) | 0x01; 
+                
+                TestKey k(id, target_hash);
+                
+                InsertResult res = table.insert(k, &val);
+                if (res == InsertResult::Success) successes++;
+            }
+        });
+    }
+
+    for (auto& t : threads) t.join();
+
+    // The table should be full or close to it, and no data corruption
+    int final_count = 0;
+    table.for_each([&](const TestKey&, int*) { final_count++; });
+    
+    BOOST_CHECK_EQUAL(final_count, successes.load());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
