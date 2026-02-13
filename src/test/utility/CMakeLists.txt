@@ -16,6 +16,7 @@ set(TEST_SOURCES
     OrderBurstControlTest.cpp
     HashTableTest.cpp
     TestHashArray.cpp
+    TestKeyBuilder.cpp
 )
 
 add_executable(utility_tests ${TEST_SOURCES})
