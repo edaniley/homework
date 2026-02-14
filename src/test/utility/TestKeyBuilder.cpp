@@ -143,7 +143,7 @@ BOOST_AUTO_TEST_CASE(test_match_list) {
 }
 
 // -----------------------------------------------------------------------------
-// New Feature Tests: Include Unselected Fields
+// New Feature Tests: PaddedBuilder (Include Unselected Fields)
 // -----------------------------------------------------------------------------
 
 // Setup for default byte test
@@ -151,73 +151,57 @@ struct KeyAttrWithDefault : KeyAttribute<"AttrDefault", 2, CopyFieldB> {
     static constexpr std::byte default_byte{0xEE};
 };
 
+// Define order: FieldA (4), AttrDefault (2), FieldC (3)
+// Total raw size: 4 + 2 + 3 = 9. Aligned size: 16.
 using DefaultByteOptions = KeyBuilder<Payload, type_list<
     KeyAttribute<"FieldA", 4, CopyFieldA>,
     KeyAttrWithDefault,
     KeyAttribute<"FieldC", 3, CopyFieldC>
 >>;
 
-BOOST_AUTO_TEST_CASE(test_explicit_false) {
-    // Builder<false, "FieldA"> should be identical to Builder<"FieldA">
-    using BuilderA = DefaultByteOptions::Builder<false, "FieldA">;
-    static_assert(BuilderA::SIZE == 8);
+BOOST_AUTO_TEST_CASE(test_padded_builder_include_unselected) {
+    // Select "FieldC". 
+    // PaddedBuilder should generate key with ALL fields in Definition Order.
+    // 1. FieldA (Unselected -> Pad 0)
+    // 2. AttrDefault (Unselected -> Pad 0xEE)
+    // 3. FieldC (Selected -> Data)
+    
+    using PaddedC = DefaultByteOptions::PaddedBuilder<"FieldC">;
+    
+    static_assert(PaddedC::SIZE == 16);
     
     Payload p;
-    BuilderA b(p);
-    std::array<std::byte, 8> buffer;
-    std::memset(buffer.data(), 0xCC, buffer.size());
-    b.make(buffer.data());
-    
-    uint32_t valA;
-    std::memcpy(&valA, buffer.data(), 4);
-    BOOST_CHECK_EQUAL(valA, 0xAABBCCDD);
-    
-    // Padding should be 0 (from memset in make), NOT 0xEE (from default_byte of unselected)
-    // because IncludeUnselected is false.
-    BOOST_CHECK_EQUAL((uint8_t)buffer[4], 0);
-}
-
-BOOST_AUTO_TEST_CASE(test_include_unselected) {
-    // Select "FieldC". Unselected: "FieldA" (4), "AttrDefault" (2)
-    // Order: [C (3)] + [A (4)] + [Default (2)] = 9 bytes -> Aligned to 16
-    using BuilderC_All = DefaultByteOptions::Builder<true, "FieldC">;
-    
-    static_assert(BuilderC_All::SIZE == 16);
-    
-    Payload p;
-    BuilderC_All b(p);
+    PaddedC b(p);
     std::array<std::byte, 16> buffer;
     std::memset(buffer.data(), 0xFF, buffer.size()); // Fill with junk
     
     b.make(buffer.data());
     
-    // 1. Selected Field: FieldC (3 bytes: 'X', 'Y', 'Z')
-    BOOST_CHECK_EQUAL((char)buffer[0], 'X');
-    BOOST_CHECK_EQUAL((char)buffer[1], 'Y');
-    BOOST_CHECK_EQUAL((char)buffer[2], 'Z');
-    
-    // 2. Unselected Field: FieldA (4 bytes)
-    // Should be padded with 0 (default default_byte)
-    // Order of unselected: Defined in TypeList -> FieldA, AttrDefault, FieldC
-    // Since FieldC is selected, unselected list is: FieldA, AttrDefault.
-    
-    // Offset 3: FieldA (4 bytes) -> 0x00
+    // 1. FieldA (Offset 0, Size 4) -> Padding 0x00
+    BOOST_CHECK_EQUAL((uint8_t)buffer[0], 0x00);
+    BOOST_CHECK_EQUAL((uint8_t)buffer[1], 0x00);
+    BOOST_CHECK_EQUAL((uint8_t)buffer[2], 0x00);
     BOOST_CHECK_EQUAL((uint8_t)buffer[3], 0x00);
-    BOOST_CHECK_EQUAL((uint8_t)buffer[4], 0x00);
-    BOOST_CHECK_EQUAL((uint8_t)buffer[5], 0x00);
-    BOOST_CHECK_EQUAL((uint8_t)buffer[6], 0x00);
     
-    // 3. Unselected Field: AttrDefault (2 bytes)
-    // Should be padded with 0xEE (custom default_byte)
-    // Offset 7: AttrDefault (2 bytes) -> 0xEE
-    BOOST_CHECK_EQUAL((uint8_t)buffer[7], 0xEE);
-    BOOST_CHECK_EQUAL((uint8_t)buffer[8], 0xEE);
+    // 2. AttrDefault (Offset 4, Size 2) -> Padding 0xEE
+    BOOST_CHECK_EQUAL((uint8_t)buffer[4], 0xEE);
+    BOOST_CHECK_EQUAL((uint8_t)buffer[5], 0xEE);
     
-    // 4. Remaining Alignment Padding (9 bytes used, size 16 -> 7 bytes padding)
-    // Offset 9..15 should be 0
+    // 3. FieldC (Offset 6, Size 3) -> Data ('X', 'Y', 'Z')
+    BOOST_CHECK_EQUAL((char)buffer[6], 'X');
+    BOOST_CHECK_EQUAL((char)buffer[7], 'Y');
+    BOOST_CHECK_EQUAL((char)buffer[8], 'Z');
+    
+    // 4. Alignment Padding (Offset 9..15) -> 0x00
     for(int i=9; i<16; ++i) {
         BOOST_CHECK_EQUAL((uint8_t)buffer[i], 0);
     }
+}
+
+BOOST_AUTO_TEST_CASE(test_padded_builder_match_list) {
+    using PaddedC = DefaultByteOptions::PaddedBuilder<"FieldC">;
+    static_assert(PaddedC::matchList("FieldC"));
+    static_assert(!PaddedC::matchList("FieldA"));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
