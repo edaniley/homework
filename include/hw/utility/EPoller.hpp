@@ -13,10 +13,10 @@
 #include <unordered_map>
 #include <stdexcept>
 
-namespace hw::utility	{
+namespace hw::utility {
 
 enum class SocketState {
-  DATA_READY,   // epoll indicated tgar there is unread data
+  DATA_READY,   // epoll indicated that there is unread data
   ACCEPT_READY,
   CONNECTED,    // connection established
   DISCONNECTED, // remote end close or error
@@ -38,7 +38,13 @@ class EPoller {
   };
 
   int _epfd = -1;
-  std::unordered_map<int, Connection> _connections;
+  // Pointers in _events point to values in this map.
+  // Address stability is guaranteed by std::unordered_map node allocation.
+  std::unordered_map<int, Connection> _connections; 
+  
+  // Safety: Track active event count to allow close() to scrub the event list
+  int _current_event_count = 0;
+
   static constexpr int MAX_EVENTS = 64;
   epoll_event _events[MAX_EVENTS];
 
@@ -61,9 +67,9 @@ public:
 
   ~EPoller() {
     for (auto & [sock, _] : _connections) {
-      :: close(sock);
+      ::close(sock);
     }
-    :: close(_epfd);
+    ::close(_epfd);
   }
 
   std::pair<int, int> listen (const std::string & host, uint16_t port, const EventHandler & handler) {
@@ -76,17 +82,19 @@ public:
       return return_error(sock);
     }
 
-    if (::bind   (sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0 ||
-        ::listen (sock, SOMAXCONN) < 0) {
+    if (::bind(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0 ||
+        ::listen(sock, SOMAXCONN) < 0) {
       return return_error(sock);
     }
 
-    auto [it, _] = _connections.emplace(sock, Connection{sock, true,SocketType::TCP_SERVER, handler});
+    // Insert first to get stable address
+    auto [it, _] = _connections.emplace(sock, Connection{sock, true, SocketType::TCP_SERVER, handler});
+    
     epoll_event ev {};
-    ev.data.fd = sock;
-    ev.data.ptr = &it->second;
     ev.events = EPOLLIN;
+    ev.data.ptr = &it->second; // Fast pointer access
     ::epoll_ctl(_epfd, EPOLL_CTL_ADD, sock, &ev);
+    
     return std::make_pair(sock, 0);
   }
 
@@ -97,17 +105,18 @@ public:
     int sock = ::accept4(svrsock, reinterpret_cast<sockaddr *>(&addr), &addrlen, SOCK_NONBLOCK);
     if (sock > 0) {
       auto [it, _] = _connections.emplace(sock, Connection{sock, true, SocketType::TCP_CLIENT, handler});
+      
       epoll_event ev {};
-      ev.data.fd = sock;
-      ev.data.ptr = &it->second;
       ev.events = EPOLLIN | EPOLLRDHUP;
+      ev.data.ptr = &it->second; // Fast pointer access
       ::epoll_ctl(_epfd, EPOLL_CTL_ADD, sock, &ev);
+      
       return std::make_pair(sock, 0);
     }
     return return_error(-1);
   }
 
-  std:: pair<int, int> connect (const std::string & host, uint16_t port, const EventHandler & handler) {
+  std::pair<int, int> connect (const std::string & host, uint16_t port, const EventHandler & handler) {
     int sock = ::socket (AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     ::sockaddr_in addr {};
     if (make_address(addr, host, port) <= 0) {
@@ -120,21 +129,40 @@ public:
     }
 
     auto [it, _] = _connections.emplace(sock, Connection{sock, false, SocketType::TCP_CLIENT, handler});
+    
     epoll_event ev {};
-    ev.data.fd = sock;
-    ev.data.ptr = &it->second;
     ev.events = EPOLLOUT;
+    ev.data.ptr = &it->second; // Fast pointer access
     ::epoll_ctl(_epfd, EPOLL_CTL_ADD, sock, &ev);
+    
     return std::make_pair(sock, 0);
   }
 
   int close (int sock) {
     auto it = _connections.find(sock);
     if (it == _connections.end()) return -1;
+    
+    // Stop events
     ::epoll_ctl(_epfd, EPOLL_CTL_DEL, sock, nullptr);
     ::shutdown (sock, SHUT_WR);
-    :: close(sock);
-    _connections.erase(it);
+    ::close(sock);
+
+    // CRITICAL FIX: If we are currently polling, we must remove any pending
+    // references to this connection in the current event batch to prevent Use-After-Free.
+    // This scan is extremely fast (max 64 integers in L1 cache).
+    if (_current_event_count > 0) [[unlikely]] {
+        Connection* target = &it->second;
+        for (int i = 0; i < _current_event_count; ++i) {
+            if (_events[i].data.ptr == target) {
+                _events[i].data.ptr = nullptr; // Nullify the pointer
+                // We don't break here because a socket *could* theoretically 
+                // appear multiple times if dup() was used, though rare. 
+                // Safety first.
+            }
+        }
+    }
+
+    _connections.erase(it); // Immediate deletion
     return 0;
   }
 
@@ -156,42 +184,62 @@ public:
     }
 
     auto it = _connections.find(sock);
-    if (it != _connections. end()) {
+    if (it != _connections.end()) {
         it->second.handler(sock, SocketState::ERROR, rc);
         close(sock);
-        return rc;
     }
+    return rc;
   }
 
   int poll (int timeout_ms = 0) {
     int n = ::epoll_wait(_epfd, _events, MAX_EVENTS, timeout_ms);
     if (n < 0) return -1;
 
+    _current_event_count = n; // Publish count for close()
+
     for (int i = 0; i < n; ++i) {
       epoll_event &ev = _events[i];
-      Connection & conn = *(Connection *)ev.data.ptr;
-      int sock = conn.fd;
-      if (ev.events & EPOLLIN) [[likely]] {
-        conn.handler (sock, conn.type == SocketType::TCP_SERVER ? SocketState::ACCEPT_READY : SocketState::DATA_READY, 0);
+      
+      // FAST: Direct pointer access
+      Connection *conn = static_cast<Connection*>(ev.data.ptr);
+
+      // SAFETY: Check if close() nullified this pointer
+      if (!conn) [[unlikely]] {
+          continue;
       }
+
+      int sock = conn->fd;
+
+      if (ev.events & EPOLLIN) [[likely]] {
+        conn->handler(sock, conn->type == SocketType::TCP_SERVER ? SocketState::ACCEPT_READY : SocketState::DATA_READY, 0);
+        
+        // SAFETY: Check again. The handler might have called close(sock) (suicide)
+        // or close() on another socket that happens to be next in the list.
+        if (_events[i].data.ptr == nullptr) continue;
+      }
+
       if (ev.events & EPOLLOUT) [[unlikely]] {
         int err = 0;
         socklen_t len = sizeof(err);
-        if (::getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len) && err == 0) [[likely]] {
-          conn.connected = true;
-          conn.handler(sock, SocketState::CONNECTED, 0);
-          epoll_event ev {};
-          ev.events = EPOLLIN | EPOLLRDHUP;
-          ev.data.fd = sock;
-          ev.data. ptr = &conn;
-          ::epoll_ctl(_epfd, EPOLL_CTL_MOD, sock, &ev);
+        if (::getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0) [[likely]] {
+          conn->connected = true;
+          conn->handler(sock, SocketState::CONNECTED, 0);
+          
+          if (_events[i].data.ptr != nullptr) {
+             epoll_event mod_ev {};
+             mod_ev.events = EPOLLIN | EPOLLRDHUP;
+             mod_ev.data.ptr = conn; 
+             ::epoll_ctl(_epfd, EPOLL_CTL_MOD, sock, &mod_ev);
+          }
         }
         else {
-          conn.handler(sock, SocketState::ERROR, err);
-          ::close(sock);
+          conn->handler(sock, SocketState::ERROR, err);
+          close(sock);
         }
       }
     }
+    
+    _current_event_count = 0; // Reset
     return n;
   }
 
@@ -214,8 +262,3 @@ public:
 };
 
 }
-
-
-
-
-
