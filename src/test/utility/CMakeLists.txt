@@ -17,6 +17,7 @@ set(TEST_SOURCES
     HashTableTest.cpp
     TestHashArray.cpp
     TestKeyBuilder.cpp
+    TestPriorityQueue.cpp
 )
 
 add_executable(utility_tests ${TEST_SOURCES})
