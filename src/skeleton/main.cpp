@@ -24,11 +24,17 @@
 // #include <hw/utility/cce/HashTable.hpp>
 // #include <hw/utility/OrderBurstControl.hpp>
 
-#include <hw/utility/PriorityQueue.hpp>
-#include <hw/assembly/Timer.hpp>
-#include <hw/utility/CPU.hpp>
-#include <hw/assembly/Ether.hpp>
-#include <hw/assembly/Config.hpp>
+// #include <hw/utility/PriorityQueue.hpp>
+// #include <hw/assembly/Timer.hpp>
+// #include <hw/utility/CPU.hpp>
+// #include <hw/assembly/Ether.hpp>
+// #include <hw/assembly/Config.hpp>
+// #include <hw/assembly/Context.hpp>
+// #include <hw/assembly/Component.hpp>
+// #include <hw/utility/EPoller.hpp>
+// #include <hw/assembly/Dispatcher.hpp>
+// #include <hw/utility/MMap.hpp>
+#include <hw/assembly/Assembly.hpp>
 
 // void test_burst_control() {
 //   using namespace hw::utility;
