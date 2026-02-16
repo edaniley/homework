@@ -5,6 +5,7 @@
 #include <hw/type/TypeList.hpp>
 #include <hw/type/NamedType.hpp>
 #include <hw/utility/Clock.hpp>
+#include <hw/assembly/Timer.hpp>
 
 namespace hw::assembly {
 

@@ -5,12 +5,14 @@
 #include <set>
 #include <ranges>
 #include <algorithm>
+#include <new>
 
 #include <hw/utility/Text.hpp>
 
 namespace hw::utility {
 
 #define ALIGNAS (64 * 1)
+// std::hardware_constructive_interference_size
 
 #define breakpoint() asm ("int $3")
 

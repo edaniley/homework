@@ -28,7 +28,7 @@ struct Context {
 
   template <typename Type>
   Type getAttribute(const std::string & object, const std::string & attribute, const std::string & defval) const {
-    return config-getAttribute<Type>(object, attribute, defval);
+    return config.getAttribute<Type>(object, attribute, defval);
   }
 
   Config::ParentType getChild(const std::string & name) const {

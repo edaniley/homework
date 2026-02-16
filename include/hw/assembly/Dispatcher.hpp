@@ -31,9 +31,9 @@ struct EtherPlaceholder {
 
 struct DispatcherWithTimer {};
 struct DispatcherWithEpoll {};
-struct DispatcherwithBatchEnd {};
+struct DispatcherWithBatchEnd {};
 struct DispatcherNonCritical {};
-struct DefaultDispatcherTraits : DispatcherwithBatchEnd {};
+struct DefaultDispatcherTraits : DispatcherWithBatchEnd {};
 
 template<type::NameTag Name, typename AppContext, typename Ether, typename ComponentList, typename Traits = DefaultDispatcherTraits>
 class Dispatcher : public type::NamedType< Name, Dispatcher<Name, AppContext, Ether, ComponentList, Traits> > {
@@ -48,7 +48,7 @@ public:
   using EtherType	      = Ether;
   using EtherMsg	      = Ether::EtherMsg;
   using EtherMsgList    = Ether::MsgList;
-  using ComponentSet	  = mp_transform<type::make_unique_ptr_t, typename ComponentList::tupple_type>;
+  using ComponentSet	  = mp_transform<type::make_unique_ptr_t, typename ComponentList::tuple_type>;
   using LocalClock      = utility::SystemClockTSC;
   using EPoller         = utility::EPoller;
 
@@ -92,12 +92,16 @@ public:
   }
 
   void setTimer(std::chrono::system_clock::time_point when, std::function<void()> callback) {
-    _timers.scheduleAt(when, std:: move(callback));
+    if(!_timers.scheduleAt(when, std:: move(callback))) {
+      fatalExit("Failed to schedule timer: queue full");
+    }
   }
 
   template <typename Rep, typename Period>
   void setTimer(TimerType type, std::chrono::duration<Rep, Period> wait, std::function<void()> callback) {
-    _timers.scheduleAfter(type, wait, std::move(callback)) ;
+    if(!_timers.scheduleAfter(type, wait, std::move(callback))) {
+      fatalExit("Failed to schedule timer: queue full");
+    }
   }
 
   LocalClock & clock() const { return _clock; }
@@ -105,12 +109,21 @@ public:
   void run (int core) {
     if (core >= 0) {
       if (utility::setCpuAffinity(core) != 0) {
-        fatalExit(frmt::format("failed to set cpu-affinity to core: (}; errno: ()", core, errno));
+        fatalExit(frmt::format("failed to set cpu-affinity to core: {}; errno: {}", core, errno));
       }
     }
 
-    size_t batchSize = USING_BATCH_END || USING_EPOLL ? 10
-                      : USING_TIMER ? 100 : 100'100;
+
+
+    // 1024 for Epoll/BatchEnd (prioritize latency).
+    // 2048 for Timer (moderate latency).
+    // 65536 otherwise (prioritize throughput).
+    constexpr size_t MAX_BATCH_LIMIT = USING_EPOLL || USING_BATCH_END ? 1024
+                                     : USING_TIMER ? 2048 : 65536;
+
+    size_t batchSize = 64;
+    size_t maxBatchSize = MAX_BATCH_LIMIT;
+    const size_t initialBatchSize = batchSize;
 
     try {
       processBegin();
@@ -124,7 +137,9 @@ public:
             break;
           }
           if (_cursor.queueLength() > (batchSize << 3)) [[unlikely]] {
-            batchSize = batchSize << 1; // double, but not too fast
+            batchSize = std::min(maxBatchSize, batchSize << 1);
+          } else if (msgRead < batchSize && batchSize > initialBatchSize) [[unlikely]] {
+            batchSize = std::max(initialBatchSize, batchSize >> 1);
           }
         }
         if constexpr (USING_EPOLL) {
@@ -148,7 +163,7 @@ public:
 
         if constexpr (USING_ETHER) {
           if (msgRead < 0) [[unlikely]] {
-            fatalexit(frmt::format("Ring buffer overflow; cursor.queueLength:{} batchSize:{}",
+            fatalExit(frmt::format("Ring buffer overflow; cursor.queueLength:{} batchSize:{}",
               _cursor.queueLength(), batchSize));
           }
         }
@@ -218,7 +233,7 @@ private:
       using ComponentType = mp_at_c<ComponentList, idx>;
       ComponentType & component = *std::get<idx>(_components);
       component.processBegin();
-    }) ;
+    });
   }
 
   void processEnd () {

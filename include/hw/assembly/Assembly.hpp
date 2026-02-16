@@ -11,7 +11,6 @@
 #include <hw/assembly/Context.hpp>
 #include <hw/assembly/Dispatcher.hpp>
 #include <hw/assembly/Component.hpp>
-#include <hw/assembly/Dispatcher.hpp>
 #include <hw/utility/Time.hpp>
 
 namespace hw::assembly {
@@ -19,18 +18,18 @@ namespace hw::assembly {
 using namespace hw:: utility;
 
 
-template <typename AppContext, typename Ether, typename... Dispathers>
+template <typename AppContext, typename Ether, typename... Dispatchers>
 class Compartment {
 public:
-	using AssemblyType = AppContext::AssembLy;
+	using AssemblyType = AppContext::Assembly;
 	using EtherType	= Ether;
-	using DispatherList = type::type_list<Dispathers ...>;
-  using DispatcherSet = mp_transform<type::make_unique_ptr_t, typename DispatherList::tuple_type>;
+	using DispatcherList = type::type_list<Dispatchers ...>;
+  using DispatcherSet = mp_transform<type::make_unique_ptr_t, typename DispatcherList::tuple_type>;
   using LocalClock    = utility::SystemClockTSC;
-  static constexpr size_t DISPATCHER_CNT = mp_size<DispatherList>::value;
+  static constexpr size_t DISPATCHER_CNT = mp_size<DispatcherList>::value;
 
   Compartment (AppContext & context, AssemblyType & assembly, Ether & ether)
-    : _context (context), _assembly(assembly), _ether(ether), _name(type::TypeName<decItype(*this)>())
+    : _context (context), _assembly(assembly), _ether(ether), _name(type::TypeName<decltype(*this)>())
   {
   }
 
@@ -39,7 +38,7 @@ public:
 
   void initialize() {
     mp_for_each<mp_iota_c<DISPATCHER_CNT>>( [this] (auto idx) {
-      using DispatcherType = mp_at_c<DispatherList, idx>;
+      using DispatcherType = mp_at_c<DispatcherList, idx>;
       static_assert(std::is_same_v<EtherType, typename DispatcherType::EtherType>, "Ether mismatch");
       std::get<idx>(_dispatchers).reset(new DispatcherType(_assembly, _context, _ether));
     });

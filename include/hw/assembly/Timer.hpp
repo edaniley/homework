@@ -16,16 +16,16 @@ enum class TimerType {
 template <size_t N>
 class TimerQueue {
 public:
-  void scheduleAt(system_clock::time_point when, std::function<void()>callback) noexcept {
+  bool scheduleAt(system_clock::time_point when, std::function<void()>callback) noexcept {
     const microseconds usec = duration_cast<microseconds>(when - system_clock::now());
-    _queue.push(TimerEvent{TimerType::ONE_TIME, when, usec, std::move(callback)});
+    return _queue.push(TimerEvent{TimerType::ONE_TIME, when, usec, std::move(callback)});
   }
 
   template <typename Rep, typename Period>
-  void scheduleAfter(TimerType type, duration<Rep, Period> wait, std::function<void()> callback) noexcept {
+  bool scheduleAfter(TimerType type, duration<Rep, Period> wait, std::function<void()> callback) noexcept {
     const system_clock::time_point when = system_clock::now() + wait;
     const microseconds usec = duration_cast<microseconds> (wait);
-    _queue.push(TimerEvent{type, when, usec, std::move(callback)});
+    return _queue.push(TimerEvent{type, when, usec, std::move(callback)});
   }
 
   size_t poll() noexcept {

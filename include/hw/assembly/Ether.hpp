@@ -70,10 +70,10 @@ public:
       _hdr->capacity = CAPACITY;
     }
     else if (_hdr->signature != MSG_LIST_SIGNATURE) {
-      throw (std::invalid_argument(std::string("Ether signature missmatch :" + _name)));
+      throw (std::invalid_argument(std::string("Ether signature mismatch :" + _name)));
     }
     else if (_hdr->capacity != CAPACITY) {
-      throw (std::invalid_argument(std::string("Ether capacity missmatch: " + _name)));
+      throw (std::invalid_argument(std::string("Ether capacity mismatch: " + _name)));
     }
   }
 
