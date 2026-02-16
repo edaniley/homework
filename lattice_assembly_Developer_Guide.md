@@ -6,7 +6,7 @@
 ## 2. Core Concepts
 
 ### 2.1 Ether (The Ring Buffer)
-The **Ether** is the communication backbone. It is a lock-free, single-producer, multi-consumer ring buffer.
+The **Ether** is the communication backbone. It is a lock-free, multi-producer, multi-consumer ring buffer.
 *   **Role:** Stores messages (POD types) for consumption by components.
 *   **Key Feature:** Messages are typed and accessed via a `Cursor`.
 *   **Usage:** Messages are allocated directly in the buffer (`allocMsg`) and then committed (`commitMsg`) to become visible to consumers.
@@ -23,6 +23,32 @@ A **Dispatcher** is a thread that drives a set of Components.
 *   **Role:** Reads messages from an Ether, checks timers/IO, and invokes Component handlers.
 *   **Traits:** Can be configured with traits (e.g., `DispatcherWithTimer`, `DispatcherWithEpoll`) to enable features like timing or network IO.
 *   **Pinning:** Can be pinned to a specific CPU core for consistent latency.
+
+#### 2.3.1 Dispatcher Flavors (Traits)
+You can customize the Dispatcher's behavior using **Traits** to match its criticality and deployment model.
+
+*   **Hot Path (Critical):** Runs on an isolated, dedicated CPU core. It never yields the CPU, spinning constantly to process messages with minimal latency.
+    ```cpp
+    // Default behavior (Critical)
+    struct HotPathTraits : assembly::DispatcherWithBatchEnd {};
+    ```
+
+*   **Slow Path (Non-Critical):** Runs on a shared CPU core. It yields the CPU when idle to be a "good neighbor" to other processes. Use `DispatcherNonCritical` to enable `std::this_thread::yield()`.
+    ```cpp
+    // Shared CPU behavior (Non-Critical)
+    struct SlowPathTraits : assembly::DispatcherNonCritical, assembly::DispatcherWithTimer {};
+    ```
+
+*   **Feature Traits:** Mix and match traits to enable functionality:
+    *   `DispatcherWithTimer`: Enables timer support.
+    *   `DispatcherWithEpoll`: Enables `EPoller` for network I/O.
+    *   `DispatcherWithBatchEnd`: Enables `processBatchEnd` callbacks.
+
+*   **Defining a Custom Dispatcher:**
+    ```cpp
+    struct MyTraits : assembly::DispatcherWithTimer, assembly::DispatcherNonCritical {};
+    using MyDisp = assembly::Dispatcher<"SlowDisp", Context, Ether, Comps, MyTraits>;
+    ```
 
 ### 2.4 Compartment & Assembly
 *   **Compartment:** A grouping of one Ether and one or more Dispatchers that read from it.
@@ -103,6 +129,46 @@ int main() {
 The framework uses a JSON-based configuration system via `assembly::Config`.
 *   **Ethers:** Configure shared memory paths and initialization flags.
 *   **Attributes:** Components can read configuration values at runtime using `getAttribute<Type>()`.
+
+### 4.1 Component Configuration via Context
+The Application Context serves as a centralized configuration store. You can load configuration from external files (JSON, XML, YAML) and populate the context, which components can then access at runtime using their unique `NameTag`.
+
+**Example Pattern: Configuring multiple `TcpReceiver` instances**
+
+1.  **Define the Component:** Use `getAttribute` with the component's name to fetch specific settings.
+    ```cpp
+    template <type::NameTag Name>
+    struct TcpReceiver : public assembly::ComponentBase<TcpReceiver<Name>, Name, ...> {
+        void initialize() {
+            // "this->name()" returns the NameTag string (e.g., "FeedA", "FeedB")
+            std::string interface = this->template getAttribute<std::string>(this->name(), "interface", "eth0");
+            int port = this->template getAttribute<int>(this->name(), "port", 8080);
+            connect(interface, port);
+        }
+    };
+    ```
+
+2.  **Instantiate with Unique Names:**
+    ```cpp
+    using FeedA = TcpReceiver<"FeedA">;
+    using FeedB = TcpReceiver<"FeedB">;
+    ```
+
+3.  **Populate Context (Main.cpp):** Load your config file and push values to the context.
+    ```cpp
+    // Assuming config.xml contains:
+    // <FeedA interface="10.0.0.1" port="1234"/>
+    // <FeedB interface="10.0.0.2" port="5678"/>
+    
+    MyContext context("MyApp");
+    // ... parse XML/YAML ...
+    context.setAttribute("FeedA", "interface", "10.0.0.1");
+    context.setAttribute("FeedA", "port", "1234");
+    context.setAttribute("FeedB", "interface", "10.0.0.2");
+    context.setAttribute("FeedB", "port", "5678");
+    ```
+
+This pattern allows you to reuse the same component logic while configuring each instance differently based on external deployment settings.
 
 ## 5. Performance Best Practices
 
