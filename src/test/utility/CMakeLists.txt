@@ -16,6 +16,7 @@ set(TEST_SOURCES
     OrderBurstControlTest.cpp
     HashTableTest.cpp
     TestHashArray.cpp
+    TestHashVarray.cpp
     TestKeyBuilder.cpp
     TestPriorityQueue.cpp
     TestEPoller.cpp
