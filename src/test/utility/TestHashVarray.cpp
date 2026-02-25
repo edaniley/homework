@@ -34,12 +34,9 @@ struct TestKeyV {
     uint64_t id;
     uint64_t forced_hash;
 
-    TestKeyV() : id(0), forced_hash(0) {}
-    TestKeyV(uint64_t v, uint64_t h = 0) : id(v), forced_hash(h) {
-        if (forced_hash == 0) forced_hash = splitmix64(id);
-    }
+    // Default constructor is implicitly defined
 
-    uint64_t hash() const noexcept { return forced_hash; }
+    uint64_t hash() const noexcept { return forced_hash == 0 ? splitmix64(id) : forced_hash; }
     
     bool operator==(const TestKeyV& other) const { return id == other.id; }
     bool operator!=(const TestKeyV& other) const { return id != other.id; }
@@ -68,16 +65,16 @@ BOOST_AUTO_TEST_CASE(ST_BasicOperations) {
     int val1 = 1, val2 = 2;
 
     // Insert
-    BOOST_CHECK(table.insert(TestKeyV(1), &val1) == InsertResult::Success);
-    BOOST_CHECK(table.insert(TestKeyV(2), &val2) == InsertResult::Success);
+    BOOST_CHECK(table.insert({1, 0}, &val1) == InsertResult::Success);
+    BOOST_CHECK(table.insert({2, 0}, &val2) == InsertResult::Success);
 
     // Find
-    BOOST_CHECK_EQUAL(table.find(TestKeyV(1)), &val1);
-    BOOST_CHECK_EQUAL(table.find(TestKeyV(2)), &val2);
-    BOOST_CHECK(table.find(TestKeyV(3)) == nullptr);
+    BOOST_CHECK_EQUAL(table.find({1, 0}), &val1);
+    BOOST_CHECK_EQUAL(table.find({2, 0}), &val2);
+    BOOST_CHECK(table.find({3, 0}) == nullptr);
 
     // Duplicate
-    BOOST_CHECK(table.insert(TestKeyV(1), &val2) == InsertResult::DuplicateKey);
+    BOOST_CHECK(table.insert({1, 0}, &val2) == InsertResult::DuplicateKey);
 }
 
 BOOST_AUTO_TEST_CASE(ST_TableFull) {
@@ -86,15 +83,15 @@ BOOST_AUTO_TEST_CASE(ST_TableFull) {
     int val = 0;
 
     for (size_t i = 0; i < CAP; ++i) {
-        BOOST_CHECK(table.insert(TestKeyV(i), &val) == InsertResult::Success);
+        BOOST_CHECK(table.insert({i, 0}, &val) == InsertResult::Success);
     }
 
     // Table is full
-    BOOST_CHECK(table.insert(TestKeyV(CAP), &val) == InsertResult::TableFull);
+    BOOST_CHECK(table.insert({CAP, 0}, &val) == InsertResult::TableFull);
     
     // Check all exist
     for (size_t i = 0; i < CAP; ++i) {
-        BOOST_CHECK(table.find(TestKeyV(i)) != nullptr);
+        BOOST_CHECK(table.find({i, 0}) != nullptr);
     }
 }
 
@@ -107,20 +104,30 @@ BOOST_AUTO_TEST_CASE(ST_CollisionAndProbing) {
     
     for (size_t i = 0; i < CAP; ++i) {
         // Different IDs, same hash -> massive collision
-        TestKeyV k(i, 0); 
+        TestKeyV k{(uint64_t)i, 0};
         BOOST_CHECK(table.insert(k, &val) == InsertResult::Success);
     }
 
     // Verify retrieval works despite collisions
     for (size_t i = 0; i < CAP; ++i) {
-        TestKeyV k(i, 0);
+        TestKeyV k{i, 0};
         BOOST_CHECK(table.find(k) != nullptr);
     }
 }
 
-BOOST_AUTO_TEST_CASE(ST_InvalidConstruction) {
-    BOOST_CHECK_THROW((HashVarray<TestKeyV, int, false>(15)), std::invalid_argument);
-    BOOST_CHECK_THROW((HashVarray<TestKeyV, int, false>(8)), std::invalid_argument); // < 16
+BOOST_AUTO_TEST_CASE(ST_CapacityRounding) {
+    // Test that capacities are correctly rounded up and meet minimums
+    HashVarray<TestKeyV, int, false> table_15(15); // Should round up to 16
+    BOOST_CHECK_EQUAL(table_15.capacity(), 16);
+
+    HashVarray<TestKeyV, int, false> table_8(8); // Should round up to SIMD_SIZE (16)
+    BOOST_CHECK_EQUAL(table_8.capacity(), 16);
+
+    HashVarray<TestKeyV, int, false> table_16(16); // Should remain 16
+    BOOST_CHECK_EQUAL(table_16.capacity(), 16);
+
+    HashVarray<TestKeyV, int, false> table_17(17); // Should round up to 32
+    BOOST_CHECK_EQUAL(table_17.capacity(), 32);
 }
 
 //
@@ -131,9 +138,9 @@ BOOST_AUTO_TEST_CASE(MT_BasicOperations) {
     HashVarray<TestKeyV, int, true> table(CAP);
     int val = 42;
 
-    BOOST_CHECK(table.insert(TestKeyV(100), &val) == InsertResult::Success);
-    BOOST_CHECK_EQUAL(table.find(TestKeyV(100)), &val);
-    BOOST_CHECK(table.find(TestKeyV(999)) == nullptr);
+    BOOST_CHECK(table.insert({100, 0}, &val) == InsertResult::Success);
+    BOOST_CHECK_EQUAL(table.find({100, 0}), &val);
+    BOOST_CHECK(table.find({999, 0}) == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(MT_LibraryKeyType) {
@@ -175,7 +182,7 @@ BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Unique) {
         threads.emplace_back([&, t]() {
             for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
                 int id = t * ITEMS_PER_THREAD + i;
-                TestKeyV k(id);
+                TestKeyV k{(uint64_t)id, 0};
                 if (table.insert(k, &values[id]) != InsertResult::Success) {
                     errors++;
                 }
@@ -189,7 +196,7 @@ BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Unique) {
 
     // Verify all found
     for (int i = 0; i < NUM_THREADS * ITEMS_PER_THREAD; ++i) {
-        TestKeyV k(i);
+        TestKeyV k{(uint64_t)i, 0};
         if (table.find(k) == nullptr) {
             BOOST_ERROR("Failed to find key " << i);
         }
@@ -211,7 +218,7 @@ BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Duplicates) {
         threads.emplace_back([&]() {
             for (int i = 0; i < (int)CAP; ++i) {
                 // Everyone tries to insert key 'i'
-                if (table.insert(TestKeyV(i), &val) == InsertResult::Success) {
+                if (table.insert({(uint64_t)i, 0}, &val) == InsertResult::Success) {
                     success_count++;
                 }
             }
@@ -236,7 +243,7 @@ BOOST_AUTO_TEST_CASE(Stress_ReadWhileWrite) {
             // Just continuously scan random keys to check for consistency/crashes
             // We can't guarantee what is found or not, but it shouldn't segfault or hang
             for (int i = 0; i < 100; ++i) {
-                table.find(TestKeyV(rand() % CAP));
+                table.find({(uint64_t)(rand() % CAP), 0});
             }
             std::this_thread::yield();
         }
@@ -245,7 +252,7 @@ BOOST_AUTO_TEST_CASE(Stress_ReadWhileWrite) {
     // Writer thread
     std::thread writer([&]() {
         for (size_t i = 0; i < CAP; ++i) {
-            table.insert(TestKeyV(i), &val);
+            table.insert({i, 0}, &val);
             if (i % 100 == 0) std::this_thread::yield();
         }
         done = true;
@@ -257,7 +264,7 @@ BOOST_AUTO_TEST_CASE(Stress_ReadWhileWrite) {
     // Final check
     int found = 0;
     for (size_t i = 0; i < CAP; ++i) {
-        if (table.find(TestKeyV(i))) found++;
+        if (table.find({i, 0})) found++;
     }
     BOOST_CHECK_EQUAL(found, CAP);
 }
@@ -284,7 +291,7 @@ BOOST_AUTO_TEST_CASE(Stress_HighContention_WrapAround) {
                 // Force hash to map to last bucket (idx 31)
                 uint64_t target_hash = (31 << 7) | 0x01; 
                 
-                TestKeyV k(id, target_hash);
+                TestKeyV k{id, target_hash};
                 
                 InsertResult res = table.insert(k, &val);
                 if (res == InsertResult::Success) successes++;

@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <algorithm>
+#include <bit>
 
 #ifdef DEBUG
 	#include <iostream>
@@ -37,14 +38,20 @@ class HashVarrayBase;
 //
 template <typename KeyType, typename ValueType>
 class HashVarrayBase<KeyType, ValueType, false> {
+  static_assert(std::is_trivial_v<KeyType> && std::is_trivially_destructible_v<KeyType>, "KeyType must be a trivial type (POD) and not require a destructor.");
 public:
-  HashVarrayBase(size_t max_keys) : _capacity(max_keys), _mask(max_keys - 1) {
-    if ((max_keys & (max_keys - 1)) != 0) {
-      throw std::invalid_argument("max_keys must be a power of 2");
-    }
-    if (max_keys < SIMD_SIZE) {
-      throw std::invalid_argument("max_keys must be at least 16");
-    }
+  size_t capacity() const { return _capacity; }
+  HashVarrayBase(size_t max_keys) :
+    _capacity([max_keys]() {
+      size_t new_max_keys = std::bit_ceil(max_keys);
+      // Ensure it's at least SIMD_SIZE
+      if (new_max_keys < SIMD_SIZE) {
+          new_max_keys = SIMD_SIZE;
+      }
+      return new_max_keys;
+    }()),
+    _mask(_capacity - 1)
+  {
 
     allocate_memory();
     // Initialize control bytes to Empty
@@ -188,15 +195,20 @@ private:
 //
 template <typename KeyType, typename ValueType>
 class HashVarrayBase<KeyType, ValueType, true> {
+  static_assert(std::is_trivial_v<KeyType> && std::is_trivially_destructible_v<KeyType>, "KeyType must be a trivial type (POD) and not require a destructor.");
 public:
-  HashVarrayBase(size_t max_keys) : _capacity(max_keys), _mask(max_keys - 1) {
-    if ((max_keys & (max_keys - 1)) != 0) {
-      throw std::invalid_argument("max_keys must be a power of 2");
-    }
-    if (max_keys < SIMD_SIZE) {
-      throw std::invalid_argument("max_keys must be at least 16");
-    }
-
+  size_t capacity() const { return _capacity; }
+  HashVarrayBase(size_t max_keys_param) :
+    _capacity([&]() {
+      size_t new_max_keys = std::bit_ceil(max_keys_param);
+      // Ensure it's at least SIMD_SIZE
+      if (new_max_keys < SIMD_SIZE) {
+          new_max_keys = SIMD_SIZE;
+      }
+      return new_max_keys;
+    }()),
+    _mask(_capacity - 1)
+  {
     allocate_memory();
     
     // Initialize atomic controls
@@ -283,6 +295,7 @@ public:
           int bit = __builtin_ctz(matchedBits);
           size_t idx = group_idx + bit;
 
+          // confirm match
           if (_ctrl[idx].load(std::memory_order_acquire) == tag) {
             if (_keys[idx] == key) [[likely]] {
               return _data[idx];
@@ -294,18 +307,22 @@ public:
         const __m128i emptyMask = _mm_cmpeq_epi8(group, _mm_set1_epi8(Control::Empty));
         uint32_t emptyBits = _mm_movemask_epi8(emptyMask);
         if (emptyBits) {
+          // Check all empty candidates with Acquire to confirm they are truly empty
           while (emptyBits) {
             int bit = __builtin_ctz(emptyBits);
             size_t idx = group_idx + bit;
             if (_ctrl[idx].load(std::memory_order_acquire) == Control::Empty) {
               return nullptr;
             }
+            // If race caused it to not be empty, try next empty bit
             emptyBits &= ~(1 << bit);
           }
         }
       }
       else { 
-        // Wrap around logic
+        // we are close to the end
+        // we cannot maintain mirror group atomically
+        // check byte by byte for wrap-around
         for (size_t k = 0; k < SIMD_SIZE; ++k) {
           size_t idx = (group_idx + k) & _mask;
           int8_t ctrl = _ctrl[idx].load(std::memory_order_acquire);
@@ -380,6 +397,8 @@ class HashVarray : public HashVarrayBase<KeyType, ValueType, THREAD_SAFE> {
 public:
   using Base = HashVarrayBase<KeyType, ValueType, THREAD_SAFE>;
   using Base::Base;
+  using Base::capacity;
+
 };
 
 } // namespace hw::utility::swisstable
