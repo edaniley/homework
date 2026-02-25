@@ -28,7 +28,7 @@ public:
   const std::string & getEther(const std::string & name) const {
     auto it = ethers_.find(name);
     if (it == ethers_. end())
-      it = ethers_.find ("default");
+      it = ethers_.find("default");
     if (it == ethers_.end())
       throw (std::invalid_argument(std::string("Cannot find ether setting for ") + name));
     return it->second;

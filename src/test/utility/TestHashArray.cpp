@@ -51,7 +51,7 @@ BOOST_AUTO_TEST_SUITE(HashArrayTestSuite)
 //
 BOOST_AUTO_TEST_CASE(ST_BasicOperations) {
     constexpr size_t CAP = 16;
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Single> table;
+    HashArray<TestKey, int, CAP, false> table;
     int val1 = 1, val2 = 2;
 
     // Insert
@@ -69,7 +69,7 @@ BOOST_AUTO_TEST_CASE(ST_BasicOperations) {
 
 BOOST_AUTO_TEST_CASE(ST_TableFull) {
     constexpr size_t CAP = 16;
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Single> table;
+    HashArray<TestKey, int, CAP, false> table;
     int val = 0;
 
     for (size_t i = 0; i < CAP; ++i) {
@@ -87,7 +87,7 @@ BOOST_AUTO_TEST_CASE(ST_TableFull) {
 
 BOOST_AUTO_TEST_CASE(ST_CollisionAndProbing) {
     constexpr size_t CAP = 16;
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Single> table;
+    HashArray<TestKey, int, CAP, false> table;
     int val = 0;
 
     // Force all keys to hash to the same slot (e.g., hash=0)
@@ -114,7 +114,7 @@ BOOST_AUTO_TEST_CASE(ST_CollisionAndProbing) {
 //
 BOOST_AUTO_TEST_CASE(MT_BasicOperations) {
     constexpr size_t CAP = 32;
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    HashArray<TestKey, int, CAP, true> table;
     int val = 42;
 
     BOOST_CHECK(table.insert(TestKey(100), &val) == InsertResult::Success);
@@ -126,7 +126,7 @@ BOOST_AUTO_TEST_CASE(MT_LibraryKeyType) {
     // Verify the provided Key<SIZE> class works
     constexpr size_t CAP = 16;
     using LibKey = hw::utility::swisstable::Key<8>;
-    HashArray<LibKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    HashArray<LibKey, int, CAP, true> table;
     
     LibKey k1;
     *k1.data<uint64_t>() = 12345;
@@ -152,7 +152,7 @@ BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Unique) {
     constexpr int NUM_THREADS = 8;
     constexpr int ITEMS_PER_THREAD = CAP / NUM_THREADS;
     
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    HashArray<TestKey, int, CAP, true> table;
     std::vector<std::thread> threads;
     std::vector<int> values(CAP); // Stable addresses
     std::atomic<int> errors{0};
@@ -188,7 +188,7 @@ BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Duplicates) {
     constexpr size_t CAP = 1024;
     constexpr int NUM_THREADS = 8;
     
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    HashArray<TestKey, int, CAP, true> table;
     std::vector<std::thread> threads;
     int val = 99;
     std::atomic<int> success_count{0};
@@ -212,7 +212,7 @@ BOOST_AUTO_TEST_CASE(Stress_ConcurrentInserts_Duplicates) {
 
 BOOST_AUTO_TEST_CASE(Stress_ReadWhileWrite) {
     constexpr size_t CAP = 2048;
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    HashArray<TestKey, int, CAP, true> table;
     std::atomic<bool> done{false};
     int val = 1;
 
@@ -253,7 +253,7 @@ BOOST_AUTO_TEST_CASE(Stress_HighContention_WrapAround) {
     constexpr size_t CAP = 32;
     constexpr int NUM_THREADS = 4;
     
-    HashArray<TestKey, int, CAP, ThreadSafetyPolicy::Multi> table;
+    HashArray<TestKey, int, CAP, true> table;
     std::vector<std::thread> threads;
     std::atomic<int> successes{0};
     int val = 1;

@@ -35,7 +35,6 @@ namespace hw::utility::swisstable {
 
 
 static constexpr size_t SIMD_SIZE = 16;
-enum class ThreadSafetyPolicy { Single, Multi };
 enum class InsertResult { Success, DuplicateKey, TableFull };
 
 
@@ -48,15 +47,14 @@ enum class InsertResult { Success, DuplicateKey, TableFull };
 //
 // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#techs=SSE_ALL
 
-
-template <typename KeyType, typename ValueType, size_t MAX_KEYS, ThreadSafetyPolicy Policy>
+template <typename KeyType, typename ValueType, size_t MAX_KEYS, bool THREAD_SAFE>
 class HashArrayBase;
 
 //
 //  Single-Threaded Implementation
 //
 template <typename KeyType, typename ValueType, size_t MAX_KEYS>
-class HashArrayBase<KeyType, ValueType, MAX_KEYS, ThreadSafetyPolicy::Single> {
+class HashArrayBase<KeyType, ValueType, MAX_KEYS, false> {
   static_assert((MAX_KEYS & (MAX_KEYS - 1)) == 0, "MAX_KEYS must be a power of 2");
   static_assert(MAX_KEYS >= SIMD_SIZE, "MAX_KEYS must be at least 16 for SIMD probing");
 
@@ -170,7 +168,7 @@ private:
 //  Thread-Safe Implementation
 //
 template <typename KeyType, typename ValueType, size_t MAX_KEYS>
-class HashArrayBase<KeyType, ValueType, MAX_KEYS, ThreadSafetyPolicy::Multi> {
+class HashArrayBase<KeyType, ValueType, MAX_KEYS, true> {
   static_assert((MAX_KEYS & (MAX_KEYS - 1)) == 0, "MAX_KEYS must be a power of 2");
   static_assert(MAX_KEYS >= SIMD_SIZE, "MAX_KEYS must be at least 16 for SIMD probing");
 
@@ -296,10 +294,10 @@ private:
 };
 
 // compile-time selection
-template <typename KeyType, typename ValueType, size_t MAX_KEYS, ThreadSafetyPolicy Policy = ThreadSafetyPolicy::Multi>
-class HashArray : public HashArrayBase<KeyType, ValueType, MAX_KEYS, Policy> {
+template <typename KeyType, typename ValueType, size_t MAX_KEYS, bool THREAD_SAFE = true>
+class HashArray : public HashArrayBase<KeyType, ValueType, MAX_KEYS, THREAD_SAFE> {
 public:
-  using Base = HashArrayBase<KeyType, ValueType, MAX_KEYS, Policy>;
+  using Base = HashArrayBase<KeyType, ValueType, MAX_KEYS, THREAD_SAFE>;
   using Base::Base;
 };
 

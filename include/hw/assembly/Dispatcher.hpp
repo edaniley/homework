@@ -56,7 +56,7 @@ public:
   static constexpr bool USING_ETHER = false == std::is_same_v<EtherType, EtherPlaceholder>;
   static constexpr bool USING_TIMER = std::is_base_of_v<DispatcherWithTimer, Traits>;
   static constexpr bool USING_EPOLL = std::is_base_of_v<DispatcherWithEpoll, Traits>;
-  static constexpr bool USING_BATCH_END = std::is_base_of_v<DispatcherwithBatchEnd, Traits>;
+  static constexpr bool USING_BATCH_END = std::is_base_of_v<DispatcherWithBatchEnd, Traits>;
   static constexpr bool USING_YIELD = std::is_base_of_v<DispatcherNonCritical, Traits>;
 
 	Dispatcher(AssemblyType & assembly, AppContext & context, EtherType & ether, int core = -1)
