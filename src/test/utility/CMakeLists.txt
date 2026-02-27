@@ -20,6 +20,7 @@ set(TEST_SOURCES
     TestKeyBuilder.cpp
     TestPriorityQueue.cpp
     TestEPoller.cpp
+    HashTableTrivialTest.cpp
 )
 
 add_executable(utility_tests ${TEST_SOURCES})
